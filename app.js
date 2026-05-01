@@ -246,7 +246,7 @@ async function syncFromTelegram() {
   showSyncStatus('syncing');
   try {
     const known = new Set(files.map(f => f.messageId));
-    let newFiles = [];
+    let discovered = [];
     
     let offset = 0;
     let attempts = 0;
@@ -266,35 +266,36 @@ async function syncFromTelegram() {
             String(msg.chat.id) !== '-100' + String(settings.channelId)) continue;
         const parsed = parseMessageToFile(msg);
         if (parsed && !known.has(parsed.messageId)) {
-          // Fetch URL immediately so the Sheet has it
-          try {
-            parsed.url = await getFileUrl(parsed.fileId);
-            parsed.urlTs = Date.now();
-          } catch(e) {}
-          
+          discovered.push(parsed);
           known.add(parsed.messageId);
-          files.push(parsed);
-          newFiles.push(parsed);
         }
       }
       attempts++;
       if (updates.length < 100) break;
     }
     
-    // Sort by date descending
-    files.sort((a, b) => b.date - a.date);
-    saveFiles();
-    render();
-    
-    if (newFiles.length > 0) {
-      toast(`☁️ Đang lưu ${newFiles.length} file mới vào cloud...`, 'info');
-      const res = await sheetApi({ action: 'addFiles', files: newFiles });
+    if (discovered.length > 0) {
+      toast(`⚡ Đang lấy link cho ${discovered.length} file...`, 'info');
+      // Fetch URLs in parallel to speed up sync
+      await Promise.all(discovered.map(async (f) => {
+        try {
+          f.url = await getFileUrl(f.fileId);
+          f.urlTs = Date.now();
+        } catch(e) {}
+      }));
+      
+      files.push(...discovered);
+      // Sort by date descending
+      files.sort((a, b) => b.date - a.date);
+      saveFiles();
+      render();
+      
+      toast(`☁️ Đang lưu ${discovered.length} file vào cloud...`, 'info');
+      const res = await sheetApi({ action: 'addFiles', files: discovered });
       if (res && res.ok) {
-        toast(`✅ Đã đồng bộ ${newFiles.length} file lên Google Sheets`, 'success');
+        toast(`✅ Đã đồng bộ ${discovered.length} file mới!`, 'success');
       } else {
-        const errorMsg = res ? res.error : 'Không phản hồi';
-        toast('⚠️ Lỗi Cloud: ' + errorMsg + '. Hãy chắc chắn bạn đã Deploy bản GAS mới nhất!', 'error');
-        console.error('Sheet Sync Error:', res);
+        toast('⚠️ Đã lưu local nhưng lỗi khi đẩy lên Cloud', 'warning');
       }
     } else {
       toast('✅ Dữ liệu đã cập nhật', 'success');
