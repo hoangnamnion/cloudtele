@@ -434,7 +434,10 @@ function renderFileGrid(skipRefresh = false) {
     ? filteredFiles.filter(f => (currentFolderId === null ? (!f.folder || f.folder === 'all' || !folders.find(fol => fol && fol.id === f.folder)) : f.folder === currentFolderId))
     : filteredFiles;
 
-  html += levelFiles.map((f, i) => buildGridCard(f, i)).join('');
+  html += levelFiles.map(f => {
+    const globalIdx = filteredFiles.indexOf(f);
+    return buildGridCard(f, globalIdx);
+  }).join('');
   grid.innerHTML = html;
   html ? hide('emptyState') : show('emptyState');
   
