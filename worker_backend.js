@@ -25,6 +25,10 @@ export default {
       });
     }
 
+    if (!env.FILES_KV) {
+      return jsonResponse({ ok: false, error: "FILES_KV binding is missing. Please check your Worker settings -> Variables -> KV Namespace Bindings." }, 500);
+    }
+
     try {
       // ── READ ACTION (GET) ──
       if (method === "GET") {
