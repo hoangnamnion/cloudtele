@@ -1,12 +1,12 @@
 // ============================================================
-//  TeleCloud – app.js  (Part 1: Core + Telegram API + Storage)
+//  TeleCloud – app.js (Full Hierarchical Folder System)
 // ============================================================
 
 const STORAGE_KEY   = 'tc_files';
 const SETTINGS_KEY  = 'tc_settings';
 const TG_API        = 'https://api.telegram.org';
 
-// ── DEFAULT CREDENTIALS (hard-coded – works on any device) ──
+// ── DEFAULT CREDENTIALS ──
 const DEFAULT_BOT_TOKEN  = '8327837990:AAHVz_qXiui3_Thbo2sN4khegqFoLjAWvd0';
 const DEFAULT_CHANNEL_ID = '6754356446';
 const DEFAULT_SHEET_URL  = 'https://green-forest-9ebb.caovannamutt.workers.dev/';
@@ -17,32 +17,33 @@ let settings = {
   sheetUrl:  DEFAULT_SHEET_URL,
   password:  ''
 };
-let files = [];           // in-memory file index
-let currentFolder = 'all';
+
+let files = [];             // In-memory file index
+let folders = [];           // [{id, name, parentId}]
+let currentPath = [];       // [{id, name}] for breadcrumbs
+let currentFolderId = null; // null = root
+let currentFolder = 'all';  // Category filter (all, image, video, etc.)
 let currentView = 'grid';
 let currentSort = 'date-desc';
 let searchQuery = '';
 let currentMediaIndex = -1;
 let filteredFiles = [];
 let isSyncing = false;
+let isAdminMode = false;
 
 // ── INIT ────────────────────────────────────────────────────
 function init() {
   loadSettings();
   
-  // CRITICAL: If a hard-coded URL is provided in the code, prioritize it over localStorage 
-  // to ensure that updates to the backend URL propagate to all devices automatically.
   if (DEFAULT_SHEET_URL && settings.sheetUrl !== DEFAULT_SHEET_URL) {
     settings.sheetUrl = DEFAULT_SHEET_URL;
     persistSettings();
   }
 
-  // Ensure other credentials are in place
   if (!settings.botToken)  settings.botToken  = DEFAULT_BOT_TOKEN;
   if (!settings.channelId) settings.channelId = DEFAULT_CHANNEL_ID;
 
   loadFilesFromCache();
-  // Always skip setup screen — credentials are hard-coded
   hide('setupScreen');
   if (settings.password) {
     show('passwordGate'); hide('mainApp');
@@ -55,13 +56,11 @@ function init() {
 async function launchApp() {
   hide('setupScreen'); hide('passwordGate'); show('mainApp');
   fillSettingsDrawer();
-  // 1. Load fast local cache first so UI appears immediately
   loadFilesFromCache();
   render();
-  // 2. Then load authoritative data from Google Sheets
   await loadFilesFromSheet();
-  // 3. Then sync any new messages from Telegram into the sheet
   await syncFromTelegram();
+  await loadFolders();
 }
 
 // ── SETTINGS ────────────────────────────────────────────────
@@ -115,17 +114,21 @@ function checkPassword() {
   else { show('pwError'); shake(id('passwordInput')); }
 }
 
-// ── FILE STORAGE (Google Sheets primary + localStorage cache) ─
-
-// ---- Local cache helpers ----
+// ── STORAGE & API ───────────────────────────────────────────
 function loadFilesFromCache() {
   try { files = JSON.parse(localStorage.getItem(STORAGE_KEY)) || []; } catch(e){ files=[]; }
+  try { 
+    let cachedFolders = JSON.parse(localStorage.getItem('tc_folders')) || []; 
+    folders = cachedFolders.filter(f => f && f.name && f.name !== 'undefined');
+  } catch(e){ folders=[]; }
 }
 function saveFilesToCache() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(files));
 }
+function saveFoldersToCache() {
+  localStorage.setItem('tc_folders', JSON.stringify(folders));
+}
 
-// ---- Cloudflare Worker API helpers ----
 async function sheetApi(body) {
   if (!settings.sheetUrl) return null;
   try {
@@ -134,53 +137,53 @@ async function sheetApi(body) {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify(body)
     });
-    if (!r.ok) throw new Error('HTTP ' + r.status);
     return await r.json();
-  } catch(err) {
-    console.warn('API error:', err);
-    return null;
-  }
+  } catch(err) { return null; }
 }
 async function sheetGet(params = '') {
   if (!settings.sheetUrl) return null;
   try {
     const url = settings.sheetUrl + (params ? '?' + params : '');
     const r = await fetch(url);
-    if (!r.ok) throw new Error('HTTP ' + r.status);
     return await r.json();
-  } catch(err) {
-    console.warn('API GET error:', err);
-    return null;
-  }
+  } catch(err) { return null; }
 }
 
-// ---- Load from Google Sheets ----
 async function loadFilesFromSheet() {
   if (!settings.sheetUrl) return;
-  try {
-    const res = await sheetGet('action=getFiles');
-    if (res && res.ok && Array.isArray(res.files)) {
-      files = res.files.map(f => ({
-        ...f,
-        messageId: Number(f.messageId),
-        size:      Number(f.size)      || 0,
-        urlTs:     Number(f.urlTs)     || 0,
-        date:      Number(f.date)      || 0
-      }));
-      saveFilesToCache();
-      render();
-      return true;
-    }
-  } catch(e) {
-    console.warn('loadFilesFromSheet error:', e);
+  const res = await sheetGet('action=getFiles');
+  if (res && res.ok && Array.isArray(res.files)) {
+    files = res.files.map(f => ({
+      ...f,
+      messageId: Number(f.messageId),
+      size: Number(f.size) || 0,
+      urlTs: Number(f.urlTs) || 0,
+      date: Number(f.date) || 0
+    }));
+    saveFilesToCache();
+    render();
   }
-  return false;
 }
 
-// ---- Backward-compat alias (used in syncFromTelegram) ----
+async function loadFolders() {
+  if (!settings.sheetUrl) return;
+  const res = await sheetGet('action=getFolders');
+  if (res && res.ok && Array.isArray(res.folders)) {
+    folders = res.folders.filter(f => f && f.name && f.name !== 'undefined');
+    saveFoldersToCache();
+    render();
+  }
+}
+
+async function saveFolders() {
+  saveFoldersToCache();
+  if (settings.sheetUrl) {
+    await sheetApi({ action: 'saveFolders', folders });
+  }
+}
+
 function saveFiles() { saveFilesToCache(); }
 
-// ---- Write helpers ----
 async function addFile(f) {
   files.unshift(f);
   saveFilesToCache();
@@ -204,7 +207,6 @@ async function tgApi(method, params = {}) {
   if (!data.ok) throw new Error(data.description || 'Telegram API error');
   return data.result;
 }
-
 async function tgApiForm(method, formData) {
   const url = `${TG_API}/bot${settings.botToken}/${method}`;
   const r = await fetch(url, { method: 'POST', body: formData });
@@ -212,35 +214,11 @@ async function tgApiForm(method, formData) {
   if (!data.ok) throw new Error(data.description || 'Telegram API error');
   return data.result;
 }
-
 async function getFileUrl(fileId) {
   const info = await tgApi('getFile', { file_id: fileId });
   return `${TG_API}/file/bot${settings.botToken}/${info.file_path}`;
 }
 
-async function refreshFileUrls() {
-  toast('Đang làm mới link Telegram...', 'info');
-  let updates = [];
-  for (const f of files) {
-    try {
-      const newUrl = await getFileUrl(f.fileId);
-      f.url = newUrl;
-      f.urlTs = Date.now();
-      updates.push({ messageId: f.messageId, url: f.url, urlTs: f.urlTs });
-    } catch(e){}
-  }
-  saveFiles();
-  render();
-  if (updates.length > 0 && settings.sheetUrl) {
-    await sheetApi({ action: 'updateUrls', updates });
-  }
-  toast(`Đã làm mới ${updates.length} file`, 'success');
-}
-
-// ── SYNC FROM TELEGRAM ───────────────────────────────────────
-// Reads message history from the channel and rebuilds the file index.
-// Uses getUpdates trick: forward exported messages aren't available via
-// Bot API, so we use getChatHistory via the bot's own messages instead.
 async function syncFromTelegram() {
   if (isSyncing) return;
   isSyncing = true;
@@ -248,336 +226,106 @@ async function syncFromTelegram() {
   try {
     const known = new Set(files.map(f => f.messageId));
     let discovered = [];
-    
     let offset = 0;
-    let attempts = 0;
-    const maxAttempts = 5;
-    while (attempts < maxAttempts) {
-      const updates = await tgApi('getUpdates', {
-        offset,
-        limit: 100,
-        allowed_updates: ['channel_post', 'message']
-      });
+    for (let i=0; i<5; i++) {
+      const updates = await tgApi('getUpdates', { offset, limit: 100 });
       if (!updates || updates.length === 0) break;
       for (const upd of updates) {
-        const msg = upd.channel_post || upd.message;
-        if (!msg) { offset = upd.update_id + 1; continue; }
         offset = upd.update_id + 1;
-        if (String(msg.chat.id) !== String(settings.channelId) &&
-            String(msg.chat.id) !== '-100' + String(settings.channelId)) continue;
+        const msg = upd.channel_post || upd.message;
+        if (!msg) continue;
+        if (String(msg.chat.id) !== String(settings.channelId) && String(msg.chat.id) !== '-100' + String(settings.channelId)) continue;
         const parsed = parseMessageToFile(msg);
-        if (parsed && !known.has(parsed.messageId)) {
-          discovered.push(parsed);
-          known.add(parsed.messageId);
-        }
+        if (parsed && !known.has(parsed.messageId)) { discovered.push(parsed); known.add(parsed.messageId); }
       }
-      attempts++;
       if (updates.length < 100) break;
     }
-    
     if (discovered.length > 0) {
-      toast(`⚡ Đang lấy link cho ${discovered.length} file...`, 'info');
-      // Fetch URLs in parallel to speed up sync
-      await Promise.all(discovered.map(async (f) => {
-        try {
-          f.url = await getFileUrl(f.fileId);
-          f.urlTs = Date.now();
-        } catch(e) {}
-      }));
-      
+      await Promise.all(discovered.map(async f => { try { f.url = await getFileUrl(f.fileId); f.urlTs = Date.now(); } catch(e){} }));
       files.push(...discovered);
-      // Sort by date descending
-      files.sort((a, b) => b.date - a.date);
+      files.sort((a,b) => b.date - a.date);
       saveFiles();
       render();
-      
-      toast(`☁️ Đang lưu ${discovered.length} file vào cloud...`, 'info');
-      const res = await sheetApi({ action: 'addFiles', files: discovered });
-      if (res && res.ok) {
-        toast(`✅ Đã đồng bộ ${discovered.length} file mới!`, 'success');
-      } else {
-        toast('⚠️ Đã lưu local nhưng lỗi khi đẩy lên Cloud', 'warning');
-      }
-    } else {
-      toast('✅ Dữ liệu đã cập nhật', 'success');
+      await sheetApi({ action: 'addFiles', files: discovered });
+      toast(`Đã đồng bộ ${discovered.length} file`, 'success');
     }
-  } catch(err) {
-    console.error('Sync error:', err);
-    toast('Sync thất bại: ' + err.message, 'error');
-  } finally {
-    isSyncing = false;
-    showSyncStatus('idle');
-  }
-}
-
-// Full re-sync: clears local cache and re-fetches everything from Telegram
-async function fullSyncFromTelegram() {
-  if (!confirm('Xóa cache local và đồng bộ lại hoàn toàn từ Telegram?')) return;
-  files = [];
-  saveFiles();
-  await syncFromTelegram();
+  } catch(e) { console.error(e); }
+  finally { isSyncing = false; showSyncStatus('idle'); }
 }
 
 function parseMessageToFile(msg) {
   let fileId, fileSize, mime, name;
   if (msg.photo) {
     const p = msg.photo[msg.photo.length - 1];
-    fileId = p.file_id; fileSize = p.file_size;
-    mime = 'image/jpeg'; name = `photo_${msg.message_id}.jpg`;
+    fileId = p.file_id; fileSize = p.file_size; mime = 'image/jpeg'; name = `photo_${msg.message_id}.jpg`;
   } else if (msg.video) {
-    fileId = msg.video.file_id; fileSize = msg.video.file_size;
-    mime = msg.video.mime_type || 'video/mp4';
-    name = msg.video.file_name || `video_${msg.message_id}.mp4`;
-  } else if (msg.audio) {
-    fileId = msg.audio.file_id; fileSize = msg.audio.file_size;
-    mime = msg.audio.mime_type || 'audio/mpeg';
-    name = msg.audio.file_name || msg.audio.title || `audio_${msg.message_id}.mp3`;
+    fileId = msg.video.file_id; fileSize = msg.video.file_size; mime = msg.video.mime_type || 'video/mp4'; name = msg.video.file_name || `video_${msg.message_id}.mp4`;
   } else if (msg.document) {
-    fileId = msg.document.file_id; fileSize = msg.document.file_size;
-    mime = msg.document.mime_type || 'application/octet-stream';
-    name = msg.document.file_name || `file_${msg.message_id}`;
-  } else if (msg.voice) {
-    fileId = msg.voice.file_id; fileSize = msg.voice.file_size;
-    mime = 'audio/ogg'; name = `voice_${msg.message_id}.ogg`;
-  } else if (msg.video_note) {
-    fileId = msg.video_note.file_id; fileSize = msg.video_note.file_size;
-    mime = 'video/mp4'; name = `videonote_${msg.message_id}.mp4`;
-  } else {
-    return null;
-  }
+    fileId = msg.document.file_id; fileSize = msg.document.file_size; mime = msg.document.mime_type || 'application/octet-stream'; name = msg.document.file_name || `file_${msg.message_id}`;
+  } else if (msg.audio) {
+    fileId = msg.audio.file_id; fileSize = msg.audio.file_size; mime = msg.audio.mime_type || 'audio/mpeg'; name = msg.audio.file_name || `audio_${msg.message_id}.mp3`;
+  } else return null;
 
-  // Extract folder from caption hashtag  #folder_name
   let folder = autoFolder(mime);
   const cap = msg.caption || '';
   const tagMatch = cap.match(/#telecloud\s+#([\w]+)/);
   if (tagMatch) folder = tagMatch[1];
 
-  // Extract real filename from caption first line
   const capLines = cap.split('\n');
-  if (capLines[0] && capLines[0].startsWith('📁 ')) {
-    name = capLines[0].replace('📁 ', '').trim() || name;
-  }
+  if (capLines[0] && capLines[0].startsWith('📁 ')) name = capLines[0].replace('📁 ', '').trim() || name;
 
-  return {
-    messageId: msg.message_id,
-    fileId,
-    name,
-    size: fileSize || 0,
-    type: mime,
-    folder,
-    url: '',
-    urlTs: 0,
-    date: (msg.date || 0) * 1000
-  };
+  return { messageId: msg.message_id, fileId, name, size: fileSize || 0, type: mime, folder, url: '', urlTs: 0, date: (msg.date || 0) * 1000 };
 }
 
 function showSyncStatus(state) {
-  const btn = document.getElementById('syncBtn');
+  const btn = id('syncBtn');
   if (!btn) return;
-  if (state === 'syncing') {
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Đang sync...';
-    btn.disabled = true;
-  } else {
-    btn.innerHTML = '<i class="fas fa-sync-alt"></i> Làm mới';
-    btn.disabled = false;
-  }
+  btn.innerHTML = state === 'syncing' ? '<i class="fas fa-spinner fa-spin"></i> Sync...' : '<i class="fas fa-sync-alt"></i> Làm mới';
+  btn.disabled = state === 'syncing';
 }
 
 // ── UPLOAD ───────────────────────────────────────────────────
 async function uploadFiles(fileList) {
-  const folder = val('uploadFolderCustom').trim() || val('uploadFolderSelect') || '';
-  const queue = id('uploadQueue');
-
+  const folder = val('uploadFolderCustom').trim() || val('uploadFolderSelect') || currentFolderId || '';
   for (const file of fileList) {
-    if (file.size > 50 * 1024 * 1024) {
-      toast(`${file.name}: vượt quá 50MB`, 'error'); continue;
-    }
-    const itemId = 'uq_' + Date.now() + Math.random().toString(36).slice(2);
-    const icon = fileIcon(file.type, file.name);
-    queue.insertAdjacentHTML('beforeend', `
-      <div class="upload-item" id="${itemId}">
-        <div class="upload-item-icon">${icon}</div>
-        <div class="upload-item-info">
-          <div class="upload-item-name">${file.name}</div>
-          <div class="upload-item-status" id="${itemId}_s">Đang chuẩn bị...</div>
-          <div class="progress-bar"><div class="progress-fill" id="${itemId}_p" style="width:0%"></div></div>
-        </div>
-        <div class="upload-status-icon" id="${itemId}_i">⏳</div>
-      </div>`);
-
+    if (file.size > 50*1024*1024) { toast('File > 50MB!', 'error'); continue; }
+    const itemId = 'uq_' + Date.now();
+    id('uploadQueue').insertAdjacentHTML('beforeend', `<div class="upload-item" id="${itemId}"><div class="upload-item-name">${file.name}</div><div class="progress-bar"><div class="progress-fill" id="${itemId}_p" style="width:0%"></div></div></div>`);
     try {
-      setUploadProgress(itemId, 30, 'Đang upload...');
       const fd = new FormData();
       fd.append('chat_id', settings.channelId);
-      const caption = buildCaption(file.name, folder, file.size, file.type);
-      fd.append('caption', caption);
-
-      let method, fieldName, thumbFileId = null;
-      const mt = file.type;
-      if (mt.startsWith('image/'))      { method = 'sendPhoto';    fieldName = 'photo'; }
-      else if (mt.startsWith('video/')) { method = 'sendVideo';    fieldName = 'video'; }
-      else if (mt.startsWith('audio/')) { method = 'sendAudio';    fieldName = 'audio'; }
-      else                              { method = 'sendDocument'; fieldName = 'document'; }
-
-      fd.append(fieldName, file, file.name);
-      setUploadProgress(itemId, 60, 'Đang gửi lên Telegram...');
-
-      const result = await tgApiForm(method, fd);
-      setUploadProgress(itemId, 90, 'Hoàn thành...');
-
-      const msgId = result.message_id;
-      const tgObj = result.photo
-        ? result.photo[result.photo.length - 1]
-        : result[fieldName];
-
-      const fileId = tgObj?.file_id || tgObj?.[0]?.file_id;
-      const tgSize = tgObj?.file_size || file.size;
-      let fileUrl = '';
-      try { fileUrl = await getFileUrl(fileId); } catch(e){}
-
-      await addFile({
-        messageId: msgId,
-        fileId,
-        name: file.name,
-        size: tgSize,
-        type: mt || 'application/octet-stream',
-        folder: folder || autoFolder(mt),
-        url: fileUrl,
-        urlTs: Date.now(),
-        date: Date.now(),
-        thumb: mt.startsWith('image/') ? fileUrl : null
-      });
-
-      setUploadProgress(itemId, 100, 'Đã lưu vào Sheets ✅');
-      id(itemId + '_i').textContent = '✅';
+      fd.append('caption', `📁 ${file.name}\n#telecloud ${folder ? '#' + folder : ''}\nSize: ${formatSize(file.size)}`);
+      let method = file.type.startsWith('image/') ? 'sendPhoto' : file.type.startsWith('video/') ? 'sendVideo' : 'sendDocument';
+      fd.append(method.replace('send','').toLowerCase(), file, file.name);
+      const res = await tgApiForm(method, fd);
+      const tgObj = res.photo ? res.photo[res.photo.length-1] : res.video || res.document || res.audio;
+      const fileUrl = await getFileUrl(tgObj.file_id);
+      await addFile({ messageId: res.message_id, fileId: tgObj.file_id, name: file.name, size: tgObj.file_size, type: file.type, folder, url: fileUrl, urlTs: Date.now(), date: Date.now() });
+      id(itemId).remove();
       render();
-    } catch(err) {
-      id(itemId + '_s').textContent = 'Lỗi: ' + err.message;
-      id(itemId + '_i').textContent = '❌';
-      toast('Upload thất bại: ' + err.message, 'error');
-    }
+    } catch(e) { toast('Lỗi upload: ' + e.message, 'error'); }
   }
-}
-
-function setUploadProgress(itemId, pct, status) {
-  const p = id(itemId + '_p');
-  const s = id(itemId + '_s');
-  if (p) p.style.width = pct + '%';
-  if (s) s.textContent = status;
-}
-
-function buildCaption(name, folder, size, type) {
-  return `📁 ${name}\n#telecloud ${folder ? '#' + folder.replace(/\s+/g,'_') : ''}\nSize: ${formatSize(size)} | Type: ${type}`;
-}
-
-function autoFolder(mime) {
-  if (!mime) return 'other';
-  if (mime.startsWith('image/')) return 'image';
-  if (mime.startsWith('video/')) return 'video';
-  if (mime.startsWith('audio/')) return 'audio';
-  if (mime.includes('pdf') || mime.includes('document') || mime.includes('text') || mime.includes('spreadsheet') || mime.includes('presentation')) return 'doc';
-  return 'other';
 }
 
 // ── DELETE ───────────────────────────────────────────────────
 async function deleteFile(msgId, skipConfirm = false) {
-  if (!skipConfirm && !confirm('Xóa file này? (Sẽ xóa khỏi Telegram và danh sách)')) return;
-  try {
-    await tgApi('deleteMessage', { chat_id: settings.channelId, message_id: parseInt(msgId) });
-  } catch(e) {}
+  if (!skipConfirm && !confirm('Xóa file này?')) return;
+  try { await tgApi('deleteMessage', { chat_id: settings.channelId, message_id: parseInt(msgId) }); } catch(e){}
   removeFile(msgId);
   render();
-  toast('Đã xóa file', 'success');
 }
 
-// ── EXPORT / IMPORT ──────────────────────────────────────────
-function exportIndex() {
-  const blob = new Blob([JSON.stringify({ settings: { channelId: settings.channelId }, files }, null, 2)], { type: 'application/json' });
-  const a = document.createElement('a');
-  a.href = URL.createObjectURL(blob);
-  a.download = 'telecloud_index.json';
-  a.click();
-}
-function importIndex(evt) {
-  const file = evt.target.files[0];
-  if (!file) return;
-  const reader = new FileReader();
-  reader.onload = e => {
-    try {
-      const data = JSON.parse(e.target.result);
-      if (data.files) { files = data.files; saveFiles(); render(); toast('Đã nhập ' + files.length + ' file', 'success'); }
-    } catch(e) { toast('File JSON không hợp lệ', 'error'); }
-  };
-  reader.readAsText(file);
-}
 async function clearAllData() {
-  if (!confirm('Xóa toàn bộ dữ liệu? (File trên Telegram vẫn còn)')) return;
+  if (!confirm('Xóa TOÀN BỘ dữ liệu trên máy và Cloud?')) return;
   localStorage.removeItem(STORAGE_KEY);
-  files = [];
-  // Also clear Google Sheets if connected
+  localStorage.removeItem('tc_folders');
+  files = []; folders = [];
   if (settings.sheetUrl) {
     await sheetApi({ action: 'clearFiles' });
-    toast('Đã xóa dữ liệu local và Google Sheets', 'success');
-  } else {
-    toast('Đã xóa dữ liệu local', 'success');
+    await sheetApi({ action: 'saveFolders', folders: [] });
   }
   render();
 }
-
-// ── HELPERS ──────────────────────────────────────────────────
-const id = x => document.getElementById(x);
-const val = x => (id(x) ? id(x).value : '');
-const setVal = (x, v) => { if (id(x)) id(x).value = v || ''; };
-function show(x) { id(x) && id(x).classList.remove('hidden'); }
-function hide(x) { id(x) && id(x).classList.add('hidden'); }
-function toggle(x) { id(x) && id(x).classList.toggle('hidden'); }
-
-function formatSize(bytes) {
-  if (!bytes) return '0 B';
-  const u = ['B','KB','MB','GB'];
-  let i = 0;
-  while (bytes >= 1024 && i < 3) { bytes /= 1024; i++; }
-  return bytes.toFixed(1) + ' ' + u[i];
-}
-
-function formatDate(ts) {
-  const d = new Date(ts);
-  return d.toLocaleDateString('vi-VN', { day:'2-digit', month:'2-digit', year:'numeric' });
-}
-
-function fileIcon(mime, name) {
-  if (!mime) mime = '';
-  const ext = name ? name.split('.').pop().toLowerCase() : '';
-  if (mime.startsWith('image/')) return '🖼️';
-  if (mime.startsWith('video/')) return '🎬';
-  if (mime.startsWith('audio/')) return '🎵';
-  if (mime.includes('pdf')) return '📕';
-  if (['doc','docx'].includes(ext)) return '📝';
-  if (['xls','xlsx'].includes(ext)) return '📊';
-  if (['ppt','pptx'].includes(ext)) return '📑';
-  if (['zip','rar','7z','tar','gz'].includes(ext)) return '📦';
-  return '📄';
-}
-
-function toast(msg, type = 'info') {
-  const el = document.createElement('div');
-  el.className = `toast ${type}`;
-  el.textContent = msg;
-  id('toastContainer').appendChild(el);
-  setTimeout(() => { el.style.animation = 'fadeOut .3s ease forwards'; setTimeout(() => el.remove(), 300); }, 3000);
-}
-
-function shake(el) {
-  el.style.animation = 'none';
-  el.offsetHeight;
-  el.style.animation = 'shake .4s ease';
-}
-
-document.addEventListener('DOMContentLoaded', init);
-
-// ============================================================
-//  PART 2 – UI Rendering & Events
-// ============================================================
 
 // ── RENDER ───────────────────────────────────────────────────
 function render() {
@@ -586,337 +334,191 @@ function render() {
   updateStorageStats();
 }
 
-function getFilteredFiles() {
-  let list = [...files];
-  // Folder filter
-  if (currentFolder !== 'all') {
-    if (['image','video','audio','doc','other'].includes(currentFolder)) {
-      list = list.filter(f => f.folder === currentFolder || autoFolder(f.type) === currentFolder);
-    } else {
-      list = list.filter(f => f.folder === currentFolder);
-    }
-  }
-  // Search
-  if (searchQuery) {
-    const q = searchQuery.toLowerCase();
-    list = list.filter(f => f.name.toLowerCase().includes(q));
-  }
-  // Sort
-  const [by, dir] = currentSort.split('-');
-  list.sort((a, b) => {
-    let va = a[by === 'date' ? 'date' : by === 'name' ? 'name' : 'size'];
-    let vb = b[by === 'date' ? 'date' : by === 'name' ? 'name' : 'size'];
-    if (typeof va === 'string') { va = va.toLowerCase(); vb = vb.toLowerCase(); }
-    if (va < vb) return dir === 'asc' ? -1 : 1;
-    if (va > vb) return dir === 'asc' ? 1 : -1;
-    return 0;
-  });
-  return list;
-}
-
 function renderFileGrid() {
   const grid = id('fileGrid');
   filteredFiles = getFilteredFiles();
-  id('fileBadge').textContent = filteredFiles.length + ' file';
+  renderBreadcrumbs();
 
-  if (filteredFiles.length === 0) {
-    grid.innerHTML = '';
-    show('emptyState');
-    return;
-  }
-  hide('emptyState');
+  let html = '';
+  // 1. Folders
+  const levelFolders = folders.filter(f => f.parentId === currentFolderId);
+  html += levelFolders.map(f => `
+    <div class="file-card folder-card" onclick="navigateToFolder('${f.id}')">
+      <div class="file-thumb-placeholder"><i class="fas fa-folder" style="color:#fbbf24;font-size:48px"></i></div>
+      <div class="file-card-info">
+        <div class="file-card-name">${esc(f.name)}</div>
+        <div class="file-card-meta">Thư mục</div>
+      </div>
+      ${isAdminMode ? `<div class="file-card-actions"><button class="card-action-btn del" onclick="event.stopPropagation();deleteFolder('${f.id}')">🗑️</button></div>` : ''}
+    </div>
+  `).join('');
 
-  if (currentView === 'grid') {
-    grid.className = 'file-grid';
-    grid.innerHTML = filteredFiles.map((f, i) => buildGridCard(f, i)).join('');
-  } else {
-    grid.className = 'file-grid list-view';
-    grid.innerHTML = filteredFiles.map((f, i) => buildListCard(f, i)).join('');
-  }
+  // 2. Files
+  const levelFiles = currentFolder === 'all' 
+    ? filteredFiles.filter(f => (currentFolderId === null ? (!f.folder || f.folder === 'all' || !folders.find(fol => fol.id === f.folder)) : f.folder === currentFolderId))
+    : filteredFiles;
+
+  html += levelFiles.map((f, i) => buildGridCard(f, i)).join('');
+  grid.innerHTML = html;
+  html ? hide('emptyState') : show('emptyState');
 }
 
 function buildGridCard(f, i) {
   const isImg = f.type.startsWith('image/');
   const isVid = f.type.startsWith('video/');
-  const thumbEl = (isImg || isVid) && f.url
-    ? `<div style="position:relative">
-        ${isImg ? `<img class="file-thumb" src="${f.url}" alt="${esc(f.name)}" loading="lazy" onerror="this.style.display='none';this.nextElementSibling.style.display='flex'">
-                   <div class="file-thumb-placeholder" style="display:none">${fileIcon(f.type,f.name)}</div>`
-                : `<div class="file-thumb-placeholder">${fileIcon(f.type,f.name)}</div>`}
-        ${isVid ? `<div class="video-badge">▶ Video</div>` : ''}
-        <div class="play-overlay"><div class="play-icon">▶</div></div>
-       </div>`
-    : `<div class="file-thumb-placeholder">${fileIcon(f.type, f.name)}</div>`;
-
-  return `<div class="file-card" onclick="openMedia(${i})">
-    ${thumbEl}
-    <div class="file-card-info">
-      <div class="file-card-name" title="${esc(f.name)}">${esc(f.name)}</div>
-      <div class="file-card-meta">${formatSize(f.size)} · ${formatDate(f.date)}</div>
-    </div>
-    <div class="file-card-actions">
-      <button class="card-action-btn" onclick="event.stopPropagation();shareFile('${f.url}','${esc(f.name)}')" title="Copy link">🔗</button>
-      <button class="card-action-btn" onclick="event.stopPropagation();downloadFile('${f.url}','${esc(f.name)}')" title="Tải về">⬇️</button>
-      <button class="card-action-btn del" onclick="event.stopPropagation();deleteFile(${f.messageId})" title="Xóa">🗑️</button>
-    </div>
-  </div>`;
+  const thumb = (isImg || isVid) && f.url ? `<img src="${f.url}" class="file-thumb" loading="lazy">` : `<div class="file-thumb-placeholder">${fileIcon(f.type, f.name)}</div>`;
+  return `
+    <div class="file-card" onclick="openMedia(${i})">
+      <div style="position:relative">${thumb}${isVid ? '<div class="video-badge">▶ Video</div>' : ''}</div>
+      <div class="file-card-info">
+        <div class="file-card-name">${esc(f.name)}</div>
+        <div class="file-card-meta">${formatSize(f.size)} · ${formatDate(f.date)}</div>
+      </div>
+      ${isAdminMode ? `<div class="file-card-actions"><button class="card-action-btn del" onclick="event.stopPropagation();deleteFile(${f.messageId})">🗑️</button></div>` : ''}
+    </div>`;
 }
 
-function buildListCard(f, i) {
-  const isImg = f.type.startsWith('image/');
-  const thumbEl = isImg && f.url
-    ? `<img class="file-thumb" src="${f.url}" alt="" loading="lazy" onerror="this.outerHTML='<div class=\\'file-thumb-placeholder\\'>${fileIcon(f.type,f.name)}</div>'">`
-    : `<div class="file-thumb-placeholder">${fileIcon(f.type, f.name)}</div>`;
-
-  return `<div class="file-card list-card" onclick="openMedia(${i})">
-    ${thumbEl}
-    <div class="list-info">
-      <div class="list-name" title="${esc(f.name)}">${esc(f.name)}</div>
-      <div class="list-meta">${f.folder || 'other'} · ${formatSize(f.size)} · ${formatDate(f.date)}</div>
-    </div>
-    <div class="list-actions" onclick="event.stopPropagation()">
-      <button class="list-action-btn" onclick="shareFile('${f.url}','${esc(f.name)}')" title="Copy link"><i class="fas fa-link"></i></button>
-      <button class="list-action-btn" onclick="downloadFile('${f.url}','${esc(f.name)}')" title="Tải về"><i class="fas fa-download"></i></button>
-      <button class="list-action-btn del" onclick="deleteFile(${f.messageId})" title="Xóa"><i class="fas fa-trash"></i></button>
-    </div>
-  </div>`;
+function renderBreadcrumbs() {
+  const container = id('sectionTitle');
+  if (!container) return;
+  let html = `<span onclick="resetNavigation()" style="cursor:pointer;color:var(--accent)">Tất cả</span>`;
+  currentPath.forEach((p, idx) => {
+    html += ` <i class="fas fa-chevron-right" style="font-size:10px;margin:0 8px;opacity:0.5"></i> `;
+    if (idx === currentPath.length-1) html += `<span>${esc(p.name)}</span>`;
+    else html += `<span onclick="navigateToPathIndex(${idx})" style="cursor:pointer;color:var(--accent)">${esc(p.name)}</span>`;
+  });
+  container.innerHTML = html;
 }
 
-function esc(s) { return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;'); }
-
-function updateSidebarCounts() {
-  const counts = { all: files.length, image: 0, video: 0, audio: 0, doc: 0, other: 0 };
-  files.forEach(f => {
-    const folder = f.folder || autoFolder(f.type);
-    if (counts[folder] !== undefined) counts[folder]++;
-    else counts.other++;
-  });
-  Object.keys(counts).forEach(k => {
-    const el = id('cnt-' + k);
-    if (el) el.textContent = counts[k];
-  });
-  // Custom folders
-  const customFolderNames = [...new Set(files.map(f => f.folder).filter(f => f && !['image','video','audio','doc','other'].includes(f)))];
-  const nav = id('customFolders');
-  if (nav) {
-    nav.innerHTML = customFolderNames.map(name => {
-      const cnt = files.filter(f => f.folder === name).length;
-      const active = currentFolder === name ? 'active' : '';
-      return `<a class="nav-item ${active}" onclick="setFolder('${name}')" data-folder="${name}">
-        <i class="fas fa-folder"></i> ${esc(name)} <span class="badge">${cnt}</span>
-      </a>`;
-    }).join('');
+function getFolderPath(folderId) {
+  let path = [];
+  let curr = folders.find(f => f.id === folderId);
+  while (curr) {
+    path.unshift({ id: curr.id, name: curr.name });
+    curr = folders.find(f => f.id === curr.parentId);
   }
+  return path;
 }
 
-function updateStorageStats() {
-  const total = files.reduce((s, f) => s + (f.size || 0), 0);
-  if (id('totalSize')) id('totalSize').textContent = formatSize(total);
-  if (id('totalFiles')) id('totalFiles').textContent = files.length + ' files';
-}
-
-function updateSectionTitle() {
-  const titles = { all: 'Tất cả file', image: 'Ảnh', video: 'Video', audio: 'Âm nhạc', doc: 'Tài liệu', other: 'Khác' };
-  const title = titles[currentFolder] || currentFolder;
-  if (id('sectionTitle')) id('sectionTitle').textContent = title;
-}
-
-// ── FOLDER & VIEW ─────────────────────────────────────────────
-function setFolder(folder) {
-  currentFolder = folder;
-  document.querySelectorAll('.nav-item').forEach(el => {
-    el.classList.toggle('active', el.dataset.folder === folder);
-  });
-  updateSectionTitle();
+function navigateToFolder(id) {
+  currentFolderId = id;
+  currentPath = getFolderPath(id);
   render();
-  if (window.innerWidth <= 768) toggleSidebar();
 }
 
-function setView(v) {
-  currentView = v;
-  id('gridBtn').classList.toggle('active', v === 'grid');
-  id('listBtn').classList.toggle('active', v === 'list');
-  renderFileGrid();
+function navigateToPathIndex(idx) {
+  currentPath = currentPath.slice(0, idx + 1);
+  currentFolderId = currentPath[idx].id;
+  render();
 }
+function resetNavigation() { currentFolderId = null; currentPath = []; currentFolder = 'all'; render(); }
 
-function setSort(v) { currentSort = v; renderFileGrid(); }
-
-function addCustomFolder() {
+async function addCustomFolder() {
   const name = prompt('Tên thư mục mới:');
   if (name && name.trim()) {
-    const key = name.trim().toLowerCase().replace(/\s+/g, '_');
-    id('uploadFolderSelect').innerHTML += `<option value="${key}">${name.trim()}</option>`;
-    updateSidebarCounts();
-    toast('Thêm thư mục: ' + name.trim(), 'success');
+    folders.push({ id: 'fol_'+Date.now(), name: name.trim(), parentId: currentFolderId });
+    await saveFolders();
+    render();
+  }
+}
+async function deleteFolder(id) {
+  if (!confirm('Xóa thư mục?')) return;
+  folders = folders.filter(f => f.id !== id);
+  await saveFolders();
+  render();
+}
+
+function updateSidebarCounts() {
+  const counts = { all: files.length, image:0, video:0, audio:0, doc:0, other:0 };
+  files.forEach(f => { const cat = autoFolder(f.type); if (counts[cat] !== undefined) counts[cat]++; else counts.other++; });
+  Object.keys(counts).forEach(k => { if (id('cnt-'+k)) id('cnt-'+k).textContent = counts[k]; });
+  const nav = id('customFolders');
+  if (nav) {
+    // Chỉ hiện các thư mục gốc (không có cha) ở sidebar
+    const rootFolders = folders.filter(f => !f.parentId);
+    nav.innerHTML = rootFolders.map(f => `
+      <div class="nav-item-wrapper" style="display:flex; align-items:center; justify-content:space-between">
+        <a class="nav-item ${currentFolderId === f.id ? 'active' : ''}" onclick="navigateToFolder('${f.id}')" style="flex:1">
+          <i class="fas fa-folder"></i> ${esc(f.name)}
+        </a>
+        ${isAdminMode ? `<button onclick="deleteFolder('${f.id}')" style="background:none; border:none; color:var(--danger); padding:8px; cursor:pointer; font-size:12px; opacity:0.6 hover:opacity:1"><i class="fas fa-times"></i></button>` : ''}
+      </div>`).join('');
+  }
+  const sel = id('uploadFolderSelect');
+  if (sel) {
+    sel.innerHTML = `<option value="">-- Hiện tại --</option>` + folders.map(f => `<option value="${f.id}">📁 ${esc(f.name)}</option>`).join('');
   }
 }
 
-// ── SEARCH ───────────────────────────────────────────────────
-function handleSearch(q) {
-  searchQuery = q;
-  id('clearSearchBtn').classList.toggle('hidden', !q);
-  renderFileGrid();
-}
-function clearSearch() {
-  searchQuery = '';
-  id('searchInput').value = '';
-  id('clearSearchBtn').classList.add('hidden');
-  renderFileGrid();
+function getFilteredFiles() {
+  let list = [...files];
+  if (currentFolder !== 'all') list = list.filter(f => autoFolder(f.type) === currentFolder);
+  if (searchQuery) list = list.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()));
+  return list;
 }
 
-// ── SIDEBAR ──────────────────────────────────────────────────
-function toggleSidebar() {
-  id('sidebar').classList.toggle('open');
+// ── HELPERS ──────────────────────────────────────────────────
+const id = x => document.getElementById(x);
+const val = x => id(x)?.value || '';
+const setVal = (x, v) => { if (id(x)) id(x).value = v || ''; };
+const esc = s => String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/"/g,'&quot;');
+function show(x) { id(x)?.classList.remove('hidden'); }
+function hide(x) { id(x)?.classList.add('hidden'); }
+function formatSize(b) { if (!b) return '0 B'; const u=['B','KB','MB','GB']; let i=0; while(b>=1024 && i<3){b/=1024;i++;} return b.toFixed(1)+' '+u[i]; }
+function formatDate(ts) { return new Date(ts).toLocaleDateString('vi-VN'); }
+function autoFolder(m) { if(!m) return 'other'; if(m.startsWith('image/')) return 'image'; if(m.startsWith('video/')) return 'video'; if(m.startsWith('audio/')) return 'audio'; return 'doc'; }
+function fileIcon(m, n) { if(m?.startsWith('image/')) return '🖼️'; if(m?.startsWith('video/')) return '🎬'; if(m?.startsWith('audio/')) return '🎵'; return '📄'; }
+function toast(m, t='info') {
+  const el = document.createElement('div'); el.className = `toast ${t}`; el.textContent = m; id('toastContainer').appendChild(el);
+  setTimeout(() => { el.style.opacity='0'; setTimeout(() => el.remove(), 300); }, 3000);
 }
+function shake(el) { el.classList.add('shake'); setTimeout(() => el.classList.remove('shake'), 400); }
 
-// ── SETTINGS ─────────────────────────────────────────────────
-function toggleSettings() {
-  toggle('settingsDrawer');
-  toggle('settingsOverlay');
-  if (!id('settingsDrawer').classList.contains('hidden')) fillSettingsDrawer();
+// ── UI EVENTS ────────────────────────────────────────────────
+function toggleSidebar() { id('sidebar').classList.toggle('open'); id('sidebarOverlay')?.classList.toggle('show', window.innerWidth<=768 && id('sidebar').classList.contains('open')); }
+function toggleSettings() { id('settingsDrawer').classList.toggle('show'); id('settingsOverlay').classList.toggle('show'); if (id('settingsDrawer').classList.contains('show')) { fillSettingsDrawer(); isAdminMode=false; render(); hide('adminSettings'); show('adminLoginSection'); } }
+function unlockAdmin() { if (val('adminUnlockInput') === 'Nam2005@@@') { isAdminMode=true; render(); hide('adminLoginSection'); show('adminSettings'); } else toast('Sai mật khẩu!', 'error'); }
+
+async function openMedia(idx) {
+  currentMediaIndex = idx; const f = filteredFiles[idx]; if (!f) return;
+  if (!f.url || Date.now() - (f.urlTs||0) > 50*60*1000) { try { f.url = await getFileUrl(f.fileId); f.urlTs = Date.now(); saveFiles(); } catch(e){} }
+  show('mediaModal'); id('mediaName').textContent = f.name; id('mediaSize').textContent = formatSize(f.size);
+  const stage = id('mediaStage');
+  if (f.type.startsWith('image/')) stage.innerHTML = `<img src="${f.url}" style="max-width:100%;max-height:80vh">`;
+  else if (f.type.startsWith('video/')) stage.innerHTML = `<video src="${f.url}" controls autoplay style="max-width:100%;max-height:80vh"></video>`;
+  else stage.innerHTML = `<div class="doc-preview"><h1>📄</h1><p>${f.name}</p><button class="btn-primary" onclick="downloadFile('${f.url}','${f.name}')">Tải về</button></div>`;
 }
+function closeMediaModal() { hide('mediaModal'); id('mediaStage').innerHTML = ''; }
+function downloadFile(u, n) { const a = document.createElement('a'); a.href = u; a.download = n; a.click(); }
+function shareFile(u, n) { if (u) { navigator.clipboard.writeText(u).then(() => toast('Đã copy link!')); } else toast('Lỗi URL', 'error'); }
 
-// ── UPLOAD MODAL ─────────────────────────────────────────────
-function openUploadModal() {
-  show('uploadModal');
-  id('uploadQueue').innerHTML = '';
-  id('fileInput').value = '';
-}
-function closeUploadModal() { hide('uploadModal'); }
+function setFolder(f) { currentFolder = f; resetNavigation(); }
+function setView(v) { currentView = v; render(); }
+function handleSearch(q) { searchQuery = q; render(); }
 
-function handleFileSelect(evt) {
-  uploadFiles(Array.from(evt.target.files));
-}
-
-// ── DRAG & DROP ──────────────────────────────────────────────
 function setupDragDrop() {
-  const body = document.body;
-  body.addEventListener('dragover', e => {
-    e.preventDefault();
-    if (id('mainApp') && !id('mainApp').classList.contains('hidden')) {
-      openUploadModal();
-      const dz = id('dropZone');
-      if (dz) dz.classList.add('drag-over');
-    }
-  });
-  body.addEventListener('drop', e => {
-    e.preventDefault();
-    const dz = id('dropZone');
-    if (dz) dz.classList.remove('drag-over');
-    const files = Array.from(e.dataTransfer.files);
-    if (files.length) uploadFiles(files);
-  });
-  body.addEventListener('dragleave', e => {
-    if (e.clientX === 0 && e.clientY === 0) {
-      const dz = id('dropZone');
-      if (dz) dz.classList.remove('drag-over');
-    }
-  });
-
-  // Drop zone inside upload modal
-  const dz = id('dropZone');
-  if (dz) {
-    dz.addEventListener('dragover', e => { e.preventDefault(); dz.classList.add('drag-over'); });
-    dz.addEventListener('dragleave', () => dz.classList.remove('drag-over'));
-    dz.addEventListener('drop', e => {
-      e.preventDefault(); dz.classList.remove('drag-over');
-      uploadFiles(Array.from(e.dataTransfer.files));
-    });
-  }
+  document.body.ondragover = e => { e.preventDefault(); if (!id('mainApp').classList.contains('hidden')) show('uploadModal'); };
+  id('dropZone').onchange = e => uploadFiles(e.target.files);
 }
 
-// ── MEDIA VIEWER ─────────────────────────────────────────────
-async function openMedia(index) {
-  currentMediaIndex = index;
-  const f = filteredFiles[index];
-  if (!f) return;
-
-  // Refresh URL if older than 50 min
-  if (!f.url || Date.now() - (f.urlTs || 0) > 50 * 60 * 1000) {
-    try { f.url = await getFileUrl(f.fileId); f.urlTs = Date.now(); saveFiles(); } catch(e){}
-  }
-
-  show('mediaModal');
-  id('mediaName').textContent = f.name;
-  id('mediaSize').textContent = formatSize(f.size);
-  renderMediaStage(f);
-  id('prevBtn').classList.toggle('hidden', index <= 0);
-  id('nextBtn').classList.toggle('hidden', index >= filteredFiles.length - 1);
-}
-
-function renderMediaStage(f) {
-  const stage = id('mediaStage');
-  const mime = f.type || '';
-  if (mime.startsWith('image/')) {
-    stage.innerHTML = `<img src="${f.url}" alt="${esc(f.name)}" style="max-width:100%;max-height:80vh;object-fit:contain;border-radius:8px">`;
-  } else if (mime.startsWith('video/')) {
-    stage.innerHTML = `<video src="${f.url}" controls autoplay style="max-width:100%;max-height:80vh;border-radius:8px" controlsList="nodownload"></video>`;
-  } else if (mime.startsWith('audio/')) {
-    stage.innerHTML = `<div style="text-align:center">
-      <div style="font-size:80px;margin-bottom:16px">🎵</div>
-      <p style="margin-bottom:16px;color:var(--sub)">${esc(f.name)}</p>
-      <audio src="${f.url}" controls autoplay style="width:360px;max-width:100%"></audio>
-    </div>`;
-  } else {
-    stage.innerHTML = `<div class="doc-preview">
-      <div class="doc-icon">${fileIcon(f.type, f.name)}</div>
-      <p>${esc(f.name)}</p>
-      <p style="color:var(--muted);font-size:14px;margin-bottom:20px">${formatSize(f.size)}</p>
-      <button class="btn-primary" style="display:inline-flex;width:auto;gap:8px" onclick="downloadFile('${f.url}','${esc(f.name)}')">
-        <i class="fas fa-download"></i> Tải về
-      </button>
-    </div>`;
-  }
-}
-
-function closeMediaModal() {
-  hide('mediaModal');
-  const stage = id('mediaStage');
-  if (stage) stage.innerHTML = '';
-}
-
-function navigateMedia(dir) {
-  const newIndex = currentMediaIndex + dir;
-  if (newIndex >= 0 && newIndex < filteredFiles.length) openMedia(newIndex);
-}
-
-function downloadCurrentFile() {
-  const f = filteredFiles[currentMediaIndex];
-  if (f) downloadFile(f.url, f.name);
-}
-function shareCurrentFile() {
-  const f = filteredFiles[currentMediaIndex];
-  if (f) shareFile(f.url, f.name);
-}
-async function deleteCurrentFile() {
-  const f = filteredFiles[currentMediaIndex];
-  if (!f) return;
-  if (!confirm('Xóa file này?')) return;
-  closeMediaModal();
-  await deleteFile(f.messageId, true);
-}
-
-function downloadFile(url, name) {
-  const a = document.createElement('a');
-  a.href = url; a.download = name; a.target = '_blank';
-  a.click();
-}
-function shareFile(url, name) {
-  if (url) {
-    navigator.clipboard.writeText(url).then(() => toast('Đã copy link: ' + name, 'success'));
-  } else toast('File chưa có URL, hãy Làm mới trước', 'error');
-}
-
-// ── KEYBOARD ─────────────────────────────────────────────────
-document.addEventListener('keydown', e => {
-  if (!id('mediaModal').classList.contains('hidden')) {
-    if (e.key === 'ArrowLeft')  navigateMedia(-1);
-    if (e.key === 'ArrowRight') navigateMedia(1);
-    if (e.key === 'Escape')     closeMediaModal();
-  }
-  if (e.key === 'Escape') {
-    closeUploadModal();
-    if (!id('settingsDrawer').classList.contains('hidden')) toggleSettings();
-  }
-});
-
+document.addEventListener('DOMContentLoaded', init);
+window.setFolder = setFolder;
+window.navigateToFolder = navigateToFolder;
+window.resetNavigation = resetNavigation;
+window.navigateToPathIndex = navigateToPathIndex;
+window.deleteFolder = deleteFolder;
+window.deleteFile = deleteFile;
+window.unlockAdmin = unlockAdmin;
+window.toggleSettings = toggleSettings;
+window.toggleSidebar = toggleSidebar;
+window.openUploadModal = () => show('uploadModal');
+window.closeUploadModal = () => hide('uploadModal');
+window.closeMediaModal = closeMediaModal;
+window.saveSettings = saveSettings;
+window.clearAllData = clearAllData;
+window.syncFromTelegram = syncFromTelegram;
+window.handleSearch = handleSearch;
+window.navigateMedia = (d) => { const n = currentMediaIndex+d; if (n>=0 && n<filteredFiles.length) openMedia(n); };
+window.downloadCurrentFile = () => { const f = filteredFiles[currentMediaIndex]; if (f) downloadFile(f.url, f.name); };
+window.shareCurrentFile = () => { const f = filteredFiles[currentMediaIndex]; if (f) shareFile(f.url, f.name); };
+window.deleteCurrentFile = async () => { const f = filteredFiles[currentMediaIndex]; if (f && confirm('Xóa?')) { closeMediaModal(); await deleteFile(f.messageId, true); } };

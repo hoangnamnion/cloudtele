@@ -35,9 +35,19 @@ export default {
         const action = url.searchParams.get("action") || "getFiles";
         
         if (action === "getFiles") {
-          const data = await env.FILES_KV.get(KV_KEY);
-          const files = data ? JSON.parse(data) : [];
-          return jsonResponse({ ok: true, files });
+          const [filesData, foldersData] = await Promise.all([
+            env.FILES_KV.get(KV_KEY),
+            env.FILES_KV.get("telecloud_folders_v1")
+          ]);
+          const files = filesData ? JSON.parse(filesData) : [];
+          const folders = foldersData ? JSON.parse(foldersData) : [];
+          return jsonResponse({ ok: true, files, folders });
+        }
+        
+        if (action === "getFolders") {
+          const data = await env.FILES_KV.get("telecloud_folders_v1");
+          const folders = data ? JSON.parse(data) : [];
+          return jsonResponse({ ok: true, folders });
         }
         
         if (action === "ping") {
@@ -102,6 +112,12 @@ export default {
 
         if (action === "clearFiles") {
           await env.FILES_KV.put(KV_KEY, "[]");
+          return jsonResponse({ ok: true });
+        }
+
+        if (action === "saveFolders") {
+          const folders = body.folders || [];
+          await env.FILES_KV.put("telecloud_folders_v1", JSON.stringify(folders));
           return jsonResponse({ ok: true });
         }
       }
