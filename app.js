@@ -331,6 +331,22 @@ async function clearAllData() {
   render();
 }
 
+// ── SORT FUNCTION ────────────────────────────────────────────
+function setSort(sortType) {
+  currentSort = sortType;
+  render();
+}
+
+function sortFiles(list) {
+  switch(currentSort) {
+    case 'date-asc': return list.sort((a, b) => a.date - b.date);
+    case 'name-asc': return list.sort((a, b) => a.name.localeCompare(b.name));
+    case 'size-desc': return list.sort((a, b) => b.size - a.size);
+    case 'date-desc':
+    default: return list.sort((a, b) => b.date - a.date);
+  }
+}
+
 // ── RENDER ───────────────────────────────────────────────────
 function render() {
   updateSidebarCounts();
@@ -341,11 +357,12 @@ function render() {
 function renderFileGrid() {
   const grid = id('fileGrid');
   filteredFiles = getFilteredFiles();
+  filteredFiles = sortFiles(filteredFiles);
   renderBreadcrumbs();
 
   let html = '';
-  // 1. Folders
-  const levelFolders = folders.filter(f => f.parentId === currentFolderId);
+  // 1. Folders - SỬA LỖI: thêm kiểm tra an toàn
+  const levelFolders = folders.filter(f => f && f.id && f.parentId === currentFolderId);
   html += levelFolders.map(f => `
     <div class="file-card folder-card" onclick="navigateToFolder('${f.id}')">
       <div class="file-thumb-placeholder"><i class="fas fa-folder" style="color:#fbbf24;font-size:48px"></i></div>
@@ -359,18 +376,38 @@ function renderFileGrid() {
 
   // 2. Files
   const levelFiles = currentFolder === 'all' 
-    ? filteredFiles.filter(f => (currentFolderId === null ? (!f.folder || f.folder === 'all' || !folders.find(fol => fol.id === f.folder)) : f.folder === currentFolderId))
+    ? filteredFiles.filter(f => (currentFolderId === null ? (!f.folder || f.folder === 'all' || !folders.find(fol => fol && fol.id === f.folder)) : f.folder === currentFolderId))
     : filteredFiles;
 
   html += levelFiles.map((f, i) => buildGridCard(f, i)).join('');
   grid.innerHTML = html;
   html ? hide('emptyState') : show('emptyState');
+  
+  // Cập nhật file count
+  const badge = id('fileBadge');
+  if (badge) badge.textContent = levelFiles.length + ' file';
 }
 
 function buildGridCard(f, i) {
   const isImg = f.type.startsWith('image/');
   const isVid = f.type.startsWith('video/');
   const thumb = (isImg || isVid) && f.url ? `<img src="${f.url}" class="file-thumb" loading="lazy">` : `<div class="file-thumb-placeholder">${fileIcon(f.type, f.name)}</div>`;
+  
+  if (currentView === 'list') {
+    return `
+      <div class="file-card list-card" onclick="openMedia(${i})">
+        ${thumb}
+        <div class="list-info">
+          <div class="list-name">${esc(f.name)}</div>
+          <div class="list-meta">${formatSize(f.size)} · ${formatDate(f.date)}</div>
+        </div>
+        <div class="list-actions">
+          <button class="list-action-btn" onclick="event.stopPropagation();downloadFile('${f.url}','${f.name}')" title="Tải"><i class="fas fa-download"></i></button>
+          ${isAdminMode ? `<button class="list-action-btn del" onclick="event.stopPropagation();deleteFile(${f.messageId})" title="Xóa"><i class="fas fa-trash"></i></button>` : ''}
+        </div>
+      </div>`;
+  }
+  
   return `
     <div class="file-card" onclick="openMedia(${i})">
       <div style="position:relative">${thumb}${isVid ? '<div class="video-badge">▶ Video</div>' : ''}</div>
@@ -396,10 +433,10 @@ function renderBreadcrumbs() {
 
 function getFolderPath(folderId) {
   let path = [];
-  let curr = folders.find(f => f.id === folderId);
+  let curr = folders.find(f => f && f.id === folderId);
   while (curr) {
     path.unshift({ id: curr.id, name: curr.name });
-    curr = folders.find(f => f.id === curr.parentId);
+    curr = folders.find(f => f && f.id === curr.parentId);
   }
   return path;
 }
@@ -438,19 +475,18 @@ function updateSidebarCounts() {
   Object.keys(counts).forEach(k => { if (id('cnt-'+k)) id('cnt-'+k).textContent = counts[k]; });
   const nav = id('customFolders');
   if (nav) {
-    // Chỉ hiện các thư mục gốc (không có cha) ở sidebar
-    const rootFolders = folders.filter(f => !f.parentId);
+    const rootFolders = folders.filter(f => f && !f.parentId);
     nav.innerHTML = rootFolders.map(f => `
       <div class="nav-item-wrapper" style="display:flex; align-items:center; justify-content:space-between">
         <a class="nav-item ${currentFolderId === f.id ? 'active' : ''}" onclick="navigateToFolder('${f.id}')" style="flex:1">
           <i class="fas fa-folder"></i> ${esc(f.name)}
         </a>
-        ${isAdminMode ? `<button onclick="deleteFolder('${f.id}')" style="background:none; border:none; color:var(--danger); padding:8px; cursor:pointer; font-size:12px; opacity:0.6 hover:opacity:1"><i class="fas fa-times"></i></button>` : ''}
+        ${isAdminMode ? `<button onclick="deleteFolder('${f.id}')" style="background:none; border:none; color:var(--danger); padding:8px; cursor:pointer; font-size:12px; opacity:0.6" onmouseover="this.style.opacity='1'" onmouseout="this.style.opacity='0.6'"><i class="fas fa-times"></i></button>` : ''}
       </div>`).join('');
   }
   const sel = id('uploadFolderSelect');
   if (sel) {
-    sel.innerHTML = `<option value="">-- Hiện tại --</option>` + folders.map(f => `<option value="${f.id}">📁 ${esc(f.name)}</option>`).join('');
+    sel.innerHTML = `<option value="">-- Hiện tại --</option>` + folders.filter(f => f && f.id).map(f => `<option value="${f.id}">📁 ${esc(f.name)}</option>`).join('');
   }
 }
 
@@ -459,6 +495,78 @@ function getFilteredFiles() {
   if (currentFolder !== 'all') list = list.filter(f => autoFolder(f.type) === currentFolder);
   if (searchQuery) list = list.filter(f => f.name.toLowerCase().includes(searchQuery.toLowerCase()));
   return list;
+}
+
+function updateStorageStats() {
+  const totalSize = files.reduce((sum, f) => sum + (f.size || 0), 0);
+  const totalEl = id('totalSize');
+  const filesEl = id('totalFiles');
+  const fillEl = id('storageFill');
+  if (totalEl) totalEl.textContent = formatSize(totalSize);
+  if (filesEl) filesEl.textContent = files.length + ' files';
+  if (fillEl) {
+    // Giả lập % sử dụng (giới hạn 2GB cho Telegram bot)
+    const maxSize = 2 * 1024 * 1024 * 1024; // 2GB
+    const percent = Math.min((totalSize / maxSize) * 100, 100);
+    fillEl.style.width = percent + '%';
+  }
+}
+
+// ── EXPORT / IMPORT ──────────────────────────────────────────
+function exportIndex() {
+  const data = { files, folders, exportDate: new Date().toISOString() };
+  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'telecloud-backup-' + new Date().toISOString().slice(0,10) + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  toast('Đã xuất danh sách!', 'success');
+}
+
+async function importIndex(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  try {
+    const text = await file.text();
+    const data = JSON.parse(text);
+    if (data.files && Array.isArray(data.files)) {
+      files = data.files;
+      saveFilesToCache();
+    }
+    if (data.folders && Array.isArray(data.folders)) {
+      folders = data.folders.filter(f => f && f.name);
+      saveFoldersToCache();
+    }
+    render();
+    toast('Đã nhập danh sách!', 'success');
+  } catch(e) {
+    toast('Lỗi khi đọc file JSON!', 'error');
+  }
+  event.target.value = '';
+}
+
+// ── MOBILE SEARCH ────────────────────────────────────────────
+function toggleMobileSearch() {
+  const overlay = id('mobileSearchOverlay');
+  if (overlay) {
+    overlay.classList.toggle('hidden');
+    if (!overlay.classList.contains('hidden')) {
+      id('mSearchInput').focus();
+    }
+  }
+}
+
+function clearSearch() {
+  searchQuery = '';
+  setVal('searchInput', '');
+  setVal('mSearchInput', '');
+  render();
+}
+
+function handleFileSelect(event) {
+  uploadFiles(event.target.files);
 }
 
 // ── HELPERS ──────────────────────────────────────────────────
@@ -526,3 +634,15 @@ window.navigateMedia = (d) => { const n = currentMediaIndex+d; if (n>=0 && n<fil
 window.downloadCurrentFile = () => { const f = filteredFiles[currentMediaIndex]; if (f) downloadFile(f.url, f.name); };
 window.shareCurrentFile = () => { const f = filteredFiles[currentMediaIndex]; if (f) shareFile(f.url, f.name); };
 window.deleteCurrentFile = async () => { const f = filteredFiles[currentMediaIndex]; if (f && confirm('Xóa?')) { closeMediaModal(); await deleteFile(f.messageId, true); } };
+window.setView = setView;
+window.setSort = setSort;
+window.exportIndex = exportIndex;
+window.importIndex = importIndex;
+window.toggleMobileSearch = toggleMobileSearch;
+window.clearSearch = clearSearch;
+window.handleFileSelect = handleFileSelect;
+window.downloadFile = downloadFile;
+window.shareFile = shareFile;
+window.addCustomFolder = addCustomFolder;
+window.checkPassword = checkPassword;
+window.saveSetup = saveSetup;
