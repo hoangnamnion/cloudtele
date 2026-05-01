@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>TeleCloud – Ổ cứng Telegram</title>
+  <meta name="description" content="Biến Telegram thành ổ cứng di động cá nhân. Xem ảnh, phim trực tiếp không cần tải về.">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.0/css/all.min.css">
+  <link rel="stylesheet" href="styles.css">
+</head>
+<body>
+
+<!-- ========== SETUP SCREEN ========== -->
+<div id="setupScreen" class="fullscreen-gate">
+  <div class="gate-card glass">
+    <div class="gate-logo">🌩️</div>
+    <h1>TeleCloud</h1>
+    <p class="gate-subtitle">Telegram làm ổ cứng cá nhân</p>
+    <div class="setup-form" id="setupForm">
+      <div class="form-group">
+        <label><i class="fab fa-telegram"></i> Bot Token</label>
+        <input type="password" id="setupToken" placeholder="1234567890:AABBcc..." autocomplete="off">
+      </div>
+      <div class="form-group">
+        <label><i class="fas fa-hashtag"></i> Channel ID</label>
+        <input type="text" id="setupChannelId" placeholder="-100xxxxxxxxxx">
+      </div>
+      <div class="form-group">
+        <label><i class="fas fa-lock"></i> Mật khẩu bảo vệ <span class="optional">(tuỳ chọn)</span></label>
+        <input type="password" id="setupPassword" placeholder="Để trống nếu không cần">
+      </div>
+      <button id="setupBtn" onclick="saveSetup()" class="btn-primary">
+        <i class="fas fa-rocket"></i> Bắt đầu
+      </button>
+    </div>
+    <div class="setup-guide">
+      <details>
+        <summary>📖 Hướng dẫn cài đặt</summary>
+        <ol>
+          <li>Nhắn <code>/newbot</code> cho <strong>@BotFather</strong> → lấy Bot Token</li>
+          <li>Tạo <strong>Kênh riêng tư</strong> trên Telegram</li>
+          <li>Add bot vào kênh, cấp quyền <strong>Admin</strong></li>
+          <li>Lấy Channel ID: Forward 1 tin từ kênh sang <strong>@userinfobot</strong></li>
+        </ol>
+      </details>
+    </div>
+  </div>
+</div>
+
+<!-- ========== PASSWORD GATE ========== -->
+<div id="passwordGate" class="fullscreen-gate hidden">
+  <div class="gate-card glass">
+    <div class="gate-logo">🔐</div>
+    <h1>TeleCloud</h1>
+    <p class="gate-subtitle">Nhập mật khẩu để truy cập</p>
+    <div class="form-group">
+      <input type="password" id="passwordInput" placeholder="Mật khẩu..." onkeydown="if(event.key==='Enter')checkPassword()">
+    </div>
+    <button onclick="checkPassword()" class="btn-primary">
+      <i class="fas fa-unlock"></i> Vào
+    </button>
+    <p id="pwError" class="error-text hidden">Mật khẩu không đúng!</p>
+  </div>
+</div>
+
+<!-- ========== MAIN APP ========== -->
+<div id="mainApp" class="hidden">
+
+  <!-- Header -->
+  <header class="header">
+    <div class="header-left">
+      <button class="menu-btn" onclick="toggleSidebar()" id="menuBtn">
+        <i class="fas fa-bars"></i>
+      </button>
+      <div class="logo">
+        <span class="logo-icon">🌩️</span>
+        <span>TeleCloud</span>
+      </div>
+    </div>
+    <div class="header-search">
+      <i class="fas fa-search"></i>
+      <input type="text" id="searchInput" placeholder="Tìm file, ảnh, phim..." oninput="handleSearch(this.value)">
+      <button class="clear-btn hidden" id="clearSearchBtn" onclick="clearSearch()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="header-right">
+      <button class="btn-upload" onclick="openUploadModal()">
+        <i class="fas fa-cloud-upload-alt"></i>
+        <span>Upload</span>
+      </button>
+      <button class="icon-btn" onclick="toggleSettings()" title="Cài đặt"><i class="fas fa-cog"></i></button>
+    </div>
+  </header>
+
+  <div class="app-body">
+    <!-- Sidebar -->
+    <aside class="sidebar" id="sidebar">
+      <nav class="sidebar-nav">
+        <div class="nav-group-label">Thư viện</div>
+        <a class="nav-item active" onclick="setFolder('all')" data-folder="all">
+          <i class="fas fa-th-large"></i> Tất cả <span class="badge" id="cnt-all">0</span>
+        </a>
+        <a class="nav-item" onclick="setFolder('image')" data-folder="image">
+          <i class="fas fa-image"></i> Ảnh <span class="badge" id="cnt-image">0</span>
+        </a>
+        <a class="nav-item" onclick="setFolder('video')" data-folder="video">
+          <i class="fas fa-film"></i> Video <span class="badge" id="cnt-video">0</span>
+        </a>
+        <a class="nav-item" onclick="setFolder('audio')" data-folder="audio">
+          <i class="fas fa-music"></i> Âm nhạc <span class="badge" id="cnt-audio">0</span>
+        </a>
+        <a class="nav-item" onclick="setFolder('doc')" data-folder="doc">
+          <i class="fas fa-file-alt"></i> Tài liệu <span class="badge" id="cnt-doc">0</span>
+        </a>
+        <a class="nav-item" onclick="setFolder('other')" data-folder="other">
+          <i class="fas fa-box"></i> Khác <span class="badge" id="cnt-other">0</span>
+        </a>
+
+        <div class="nav-group-label" style="margin-top:16px">Thư mục <button class="add-folder-btn" onclick="addCustomFolder()" title="Thêm thư mục"><i class="fas fa-plus"></i></button></div>
+        <div id="customFolders"></div>
+      </nav>
+
+      <div class="sidebar-footer">
+        <div class="storage-widget">
+          <div class="storage-row">
+            <span><i class="fab fa-telegram"></i> Telegram</span>
+            <span id="totalSize">0 B</span>
+          </div>
+          <div class="storage-bar"><div class="storage-fill" id="storageFill" style="width:10%"></div></div>
+          <div class="storage-count" id="totalFiles">0 files</div>
+        </div>
+        <button class="sync-btn" id="syncBtn" onclick="syncFromTelegram()" title="Đồng bộ file mới từ Telegram">
+          <i class="fas fa-sync-alt"></i> Làm mới
+        </button>
+      </div>
+    </aside>
+
+    <!-- Main -->
+    <main class="main" id="mainContent">
+      <!-- Toolbar -->
+      <div class="toolbar">
+        <div class="toolbar-left">
+          <h2 class="section-title" id="sectionTitle">Tất cả file</h2>
+          <span class="file-count" id="fileBadge">0 file</span>
+        </div>
+        <div class="toolbar-right">
+          <div class="view-btns">
+            <button class="view-btn active" id="gridBtn" onclick="setView('grid')" title="Lưới"><i class="fas fa-th"></i></button>
+            <button class="view-btn" id="listBtn" onclick="setView('list')" title="Danh sách"><i class="fas fa-list"></i></button>
+          </div>
+          <select class="sort-select" onchange="setSort(this.value)">
+            <option value="date-desc">Mới nhất</option>
+            <option value="date-asc">Cũ nhất</option>
+            <option value="name-asc">Tên A-Z</option>
+            <option value="size-desc">Lớn nhất</option>
+          </select>
+        </div>
+      </div>
+
+      <!-- Drop Overlay -->
+      <div class="drop-overlay hidden" id="dropOverlay">
+        <div class="drop-overlay-inner">
+          <i class="fas fa-cloud-upload-alt"></i>
+          <p>Thả file để upload</p>
+        </div>
+      </div>
+
+      <!-- File Grid/List -->
+      <div class="file-grid" id="fileGrid"></div>
+
+      <!-- Empty State -->
+      <div class="empty-state hidden" id="emptyState">
+        <div class="empty-icon">📁</div>
+        <h3>Chưa có file nào</h3>
+        <p>Kéo thả file vào đây hoặc nhấn Upload để bắt đầu</p>
+        <button class="btn-primary" onclick="openUploadModal()">
+          <i class="fas fa-cloud-upload-alt"></i> Upload ngay
+        </button>
+      </div>
+    </main>
+  </div>
+
+  <!-- Settings Drawer -->
+  <div class="drawer-overlay hidden" id="settingsOverlay" onclick="toggleSettings()"></div>
+  <div class="drawer hidden" id="settingsDrawer">
+    <div class="drawer-header">
+      <h3><i class="fas fa-cog"></i> Cài đặt</h3>
+      <button onclick="toggleSettings()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="drawer-body">
+      <div class="form-group">
+        <label>Bot Token</label>
+        <input type="password" id="stToken" placeholder="Bot Token...">
+      </div>
+      <div class="form-group">
+        <label>Channel ID</label>
+        <input type="text" id="stChannelId" placeholder="-100xxxxxxxxxx">
+      </div>
+      <div class="form-group">
+        <label><i class="fas fa-table" style="color:#34a853"></i> Google Sheet API URL</label>
+        <input type="text" id="stSheetUrl" placeholder="https://script.google.com/macros/s/...">
+        <small style="color:var(--muted);font-size:11px;margin-top:4px;display:block">Dán URL Web App từ Google Apps Script để đồng bộ mọi thiết bị</small>
+      </div>
+      <div class="form-group">
+        <label>Mật khẩu</label>
+        <input type="password" id="stPassword" placeholder="Để trống nếu không cần">
+      </div>
+      <button onclick="saveSettings()" class="btn-primary w-full">Lưu</button>
+      <div class="divider"></div>
+      <button onclick="syncFromTelegram()" class="btn-secondary w-full">
+        <i class="fas fa-sync-alt"></i> Sync file mới từ Telegram
+      </button>
+      <button onclick="fullSyncFromTelegram()" class="btn-secondary w-full">
+        <i class="fas fa-redo"></i> Full Re-sync (xóa cache, sync lại)
+      </button>
+      <div class="divider"></div>
+      <button onclick="exportIndex()" class="btn-secondary w-full">
+        <i class="fas fa-file-export"></i> Xuất danh sách (JSON)
+      </button>
+      <label class="btn-secondary w-full" style="cursor:pointer;text-align:center">
+        <i class="fas fa-file-import"></i> Nhập danh sách (JSON)
+        <input type="file" accept=".json" id="importInput" hidden onchange="importIndex(event)">
+      </label>
+      <div class="divider"></div>
+      <button onclick="clearAllData()" class="btn-danger w-full">
+        <i class="fas fa-trash"></i> Xóa dữ liệu
+      </button>
+    </div>
+  </div>
+
+</div><!-- end mainApp -->
+
+<!-- ========== UPLOAD MODAL ========== -->
+<div class="modal hidden" id="uploadModal">
+  <div class="modal-backdrop" onclick="closeUploadModal()"></div>
+  <div class="modal-box">
+    <div class="modal-header">
+      <h3><i class="fas fa-cloud-upload-alt"></i> Upload file</h3>
+      <button onclick="closeUploadModal()"><i class="fas fa-times"></i></button>
+    </div>
+    <div class="modal-body">
+      <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+        <input type="file" id="fileInput" multiple hidden onchange="handleFileSelect(event)">
+        <div class="drop-zone-inner">
+          <div class="dz-icon">☁️</div>
+          <p>Kéo thả hoặc <span class="link-text">chọn file</span></p>
+          <small>Ảnh, video, nhạc, tài liệu – tối đa 50MB mỗi file</small>
+        </div>
+      </div>
+      <div class="form-group" style="margin-top:12px">
+        <label>Lưu vào thư mục:</label>
+        <select id="uploadFolderSelect">
+          <option value="">-- Tự động --</option>
+          <option value="image">🖼️ Ảnh</option>
+          <option value="video">🎬 Video</option>
+          <option value="audio">🎵 Âm nhạc</option>
+          <option value="doc">📄 Tài liệu</option>
+        </select>
+        <input type="text" id="uploadFolderCustom" placeholder="Hoặc nhập tên thư mục tùy chỉnh..." style="margin-top:6px">
+      </div>
+      <div id="uploadQueue"></div>
+    </div>
+  </div>
+</div>
+
+<!-- ========== MEDIA VIEWER ========== -->
+<div class="media-modal hidden" id="mediaModal">
+  <div class="media-backdrop" onclick="closeMediaModal()"></div>
+  <div class="media-viewer">
+    <div class="media-top-bar">
+      <div class="media-meta">
+        <span id="mediaName" class="media-name"></span>
+        <span id="mediaSize" class="media-size"></span>
+      </div>
+      <div class="media-controls">
+        <button onclick="downloadCurrentFile()" title="Tải về"><i class="fas fa-download"></i></button>
+        <button onclick="shareCurrentFile()" title="Copy link"><i class="fas fa-link"></i></button>
+        <button onclick="deleteCurrentFile()" title="Xóa" class="danger-btn"><i class="fas fa-trash"></i></button>
+        <button onclick="closeMediaModal()"><i class="fas fa-times"></i></button>
+      </div>
+    </div>
+    <div class="media-stage" id="mediaStage"></div>
+    <button class="media-nav-btn prev" id="prevBtn" onclick="navigateMedia(-1)"><i class="fas fa-chevron-left"></i></button>
+    <button class="media-nav-btn next" id="nextBtn" onclick="navigateMedia(1)"><i class="fas fa-chevron-right"></i></button>
+  </div>
+</div>
+
+<!-- Toast -->
+<div id="toastContainer"></div>
+
+<script src="app.js"></script>
+</body>
+</html>
