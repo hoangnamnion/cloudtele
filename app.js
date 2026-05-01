@@ -729,16 +729,76 @@ function toggleSidebar() { id('sidebar').classList.toggle('open'); id('sidebarOv
 function toggleSettings() { id('settingsDrawer').classList.toggle('show'); id('settingsOverlay').classList.toggle('show'); if (id('settingsDrawer').classList.contains('show')) { fillSettingsDrawer(); isAdminMode=false; render(); hide('adminSettings'); show('adminLoginSection'); } }
 function unlockAdmin() { if (val('adminUnlockInput') === 'Nam2005@@@') { isAdminMode=true; render(); hide('adminLoginSection'); show('adminSettings'); } else toast('Sai mật khẩu!', 'error'); }
 
+// ── MEDIA VIEWER ─────────────────────────────────────────────
+let currentMediaIndex = 0;
+let zoomScale = 1;
+
 async function openMedia(idx) {
-  currentMediaIndex = idx; const f = filteredFiles[idx]; if (!f) return;
-  if (!f.url || Date.now() - (f.urlTs||0) > 50*60*1000) { try { f.url = await getFileUrl(f.fileId); f.urlTs = Date.now(); saveFiles(); } catch(e){} }
-  show('mediaModal'); id('mediaName').textContent = f.name; id('mediaSize').textContent = formatSize(f.size);
+  currentMediaIndex = idx;
+  const f = filteredFiles[idx];
+  if (!f) return;
+
   const stage = id('mediaStage');
-  if (f.type.startsWith('image/')) stage.innerHTML = `<img src="${f.url}" style="max-width:100%;max-height:80vh">`;
+  stage.innerHTML = '<div class="loader-box"><i class="fas fa-spinner fa-spin"></i></div>';
+  show('mediaModal');
+  document.body.style.overflow = 'hidden'; // Khóa cuộn nền
+
+  id('mediaName').textContent = f.name;
+  id('mediaSize').textContent = formatSize(f.size);
+  id('prevBtn').style.display = idx > 0 ? 'flex' : 'none';
+  id('nextBtn').style.display = idx < filteredFiles.length - 1 ? 'flex' : 'none';
+
+  render(); // Cập nhật nút xóa
+
+  if (!f.url || Date.now() - (f.urlTs||0) > 55*60*1000) {
+    try { f.url = await getFileUrl(f.fileId); f.urlTs = Date.now(); saveFilesToCache(); } catch(e){}
+  }
+
+  zoomScale = 1;
+  if (f.type.startsWith('image/')) {
+    stage.innerHTML = `<img src="${f.url}" id="zoomImg" style="transform: scale(1); transition: transform 0.2s cubic-bezier(0.4, 0, 0.2, 1); touch-action: none; max-width:100%; max-height:80vh;">`;
+    setupZoom(id('zoomImg'));
+  }
   else if (f.type.startsWith('video/')) stage.innerHTML = `<video src="${f.url}" controls autoplay style="max-width:100%;max-height:80vh"></video>`;
   else stage.innerHTML = `<div class="doc-preview"><h1>📄</h1><p>${f.name}</p><button class="btn-primary" onclick="downloadFile('${f.url}','${f.name}')">Tải về</button></div>`;
 }
-function closeMediaModal() { hide('mediaModal'); id('mediaStage').innerHTML = ''; }
+
+function setupZoom(el) {
+  let initialDist = 0;
+  let currentScale = 1;
+  let lastTap = 0;
+
+  el.ontouchstart = e => {
+    if (e.touches.length === 2) {
+      initialDist = Math.hypot(e.touches[0].pageX - e.touches[1].pageX, e.touches[0].pageY - e.touches[1].pageY);
+    }
+    // Double tap
+    const now = Date.now();
+    if (now - lastTap < 300) {
+      zoomScale = zoomScale > 1 ? 1 : 2.5;
+      el.style.transform = `scale(${zoomScale})`;
+    }
+    lastTap = now;
+  };
+
+  el.ontouchmove = e => {
+    if (e.touches.length === 2) {
+      e.preventDefault();
+      const dist = Math.hypot(e.touches[0].pageX - e.touches[1].pageX, e.touches[0].pageY - e.touches[1].pageY);
+      const delta = dist / initialDist;
+      zoomScale = Math.min(Math.max(currentScale * delta, 1), 5);
+      el.style.transform = `scale(${zoomScale})`;
+    }
+  };
+
+  el.ontouchend = () => { currentScale = zoomScale; };
+}
+
+function closeMediaModal() { 
+  hide('mediaModal'); 
+  id('mediaStage').innerHTML = ''; 
+  document.body.style.overflow = ''; // Mở lại cuộn nền
+}
 function downloadFile(u, n) { const a = document.createElement('a'); a.href = u; a.download = n; a.click(); }
 function shareFile(u, n) { if (u) { navigator.clipboard.writeText(u).then(() => toast('Đã copy link!')); } else toast('Lỗi URL', 'error'); }
 
