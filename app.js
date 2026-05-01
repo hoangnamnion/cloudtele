@@ -425,7 +425,11 @@ function renderFileGrid(skipRefresh = false) {
         <div class="file-card-name">${esc(f.name)}</div>
         <div class="file-card-meta">Thư mục</div>
       </div>
-      ${isAdminMode ? `<button class="card-action-btn del grid-del" onclick="event.stopPropagation();deleteFolder('${f.id}')"><i class="fas fa-trash"></i></button>` : ''}
+      ${isAdminMode ? `
+      <div class="file-card-actions">
+        <button class="card-action-btn edit" onclick="event.stopPropagation();renameFolder('${f.id}')" title="Đổi tên"><i class="fas fa-edit"></i></button>
+        <button class="card-action-btn del" onclick="event.stopPropagation();deleteFolder('${f.id}')" title="Xóa"><i class="fas fa-trash"></i></button>
+      </div>` : ''}
     </div>
   `).join('');
 
@@ -519,7 +523,11 @@ function buildGridCard(f, i) {
         <div class="file-card-name">${esc(f.name)}</div>
         <div class="file-card-meta">${formatSize(f.size)} · ${formatDate(f.date)}</div>
       </div>
-      ${isAdminMode ? `<button class="card-action-btn del grid-del" onclick="event.stopPropagation();deleteFile(${f.messageId})"><i class="fas fa-trash"></i></button>` : ''}
+      ${isAdminMode ? `
+      <div class="file-card-actions">
+        <button class="card-action-btn edit" onclick="event.stopPropagation();renameFile(${f.messageId})" title="Đổi tên"><i class="fas fa-edit"></i></button>
+        <button class="card-action-btn del grid-del" onclick="event.stopPropagation();deleteFile(${f.messageId})"><i class="fas fa-trash"></i></button>
+      </div>` : ''}
     </div>`;
 }
 
@@ -566,6 +574,31 @@ async function addCustomFolder() {
     render();
   }
 }
+function renameFolder(id) {
+  const f = folders.find(fol => fol.id === id);
+  if (!f) return;
+  const newName = prompt('Nhập tên mới cho thư mục:', f.name);
+  if (newName && newName.trim() && newName !== f.name) {
+    f.name = newName.trim();
+    saveFolders();
+    render();
+  }
+}
+
+async function renameFile(msgId) {
+  const f = files.find(file => file.messageId === msgId);
+  if (!f) return;
+  const newName = prompt('Nhập tên mới cho file:', f.name);
+  if (newName && newName.trim() && newName !== f.name) {
+    f.name = newName.trim();
+    saveFilesToCache();
+    render();
+    if (settings.sheetUrl) {
+      await sheetApi({ action: 'updateFile', file: f });
+    }
+  }
+}
+
 async function deleteFolder(id) {
   if (!confirm('Xóa thư mục?')) return;
   folders = folders.filter(f => f.id !== id);
@@ -724,6 +757,8 @@ window.navigateToFolder = navigateToFolder;
 window.resetNavigation = resetNavigation;
 window.navigateToPathIndex = navigateToPathIndex;
 window.deleteFolder = deleteFolder;
+window.renameFolder = renameFolder;
+window.renameFile = renameFile;
 window.deleteFile = deleteFile;
 window.unlockAdmin = unlockAdmin;
 window.toggleSettings = toggleSettings;

@@ -90,6 +90,22 @@ export default {
           return jsonResponse({ ok: true });
         }
 
+        if (action === "updateFile") {
+          const updatedFile = body.file;
+          let changed = false;
+          files = files.map(f => {
+            if (f.messageId === updatedFile.messageId) {
+              changed = true;
+              return { ...f, ...updatedFile };
+            }
+            return f;
+          });
+          if (changed) {
+            await env.FILES_KV.put(KV_KEY, JSON.stringify(files));
+          }
+          return jsonResponse({ ok: true });
+        }
+
         if (action === "updateUrls") {
           const updates = body.updates || [];
           const updatesMap = {};

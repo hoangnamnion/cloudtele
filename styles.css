@@ -468,8 +468,10 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; }
 .file-thumb[src] { opacity: 1; }
 .file-card:hover .file-thumb { transform: scale(1.05); }
 
-.grid-del { position: absolute; top: 8px; right: 8px; background: rgba(239, 68, 68, 0.8) !important; border: none; border-radius: 8px; width: 32px; height: 32px; color: white; display: flex; align-items: center; justify-content: center; font-size: 14px; opacity: 0; transition: 0.2s; z-index: 10; }
-.file-card:hover .grid-del { opacity: 1; }
+.grid-del, .edit { position: absolute; top: 8px; border: none; border-radius: 8px; width: 32px; height: 32px; color: white; display: flex; align-items: center; justify-content: center; font-size: 14px; opacity: 0; transition: 0.2s; z-index: 10; }
+.grid-del { right: 8px; background: rgba(239, 68, 68, 0.8) !important; }
+.edit { right: 44px; background: rgba(99, 102, 241, 0.8) !important; }
+.file-card:hover .grid-del, .file-card:hover .edit { opacity: 1; }
 
 .empty-state { text-align: center; padding: 80px 20px; color: var(--muted); }
 .empty-icon { font-size: 80px; margin-bottom: 24px; filter: drop-shadow(0 10px 20px rgba(0,0,0,0.5)); }
