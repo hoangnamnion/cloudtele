@@ -290,25 +290,76 @@ function showSyncStatus(state) {
 
 // ── UPLOAD ───────────────────────────────────────────────────
 async function uploadFiles(fileList) {
+  if (!fileList || fileList.length === 0) return;
+  const total = fileList.length;
   const folder = val('uploadFolderCustom').trim() || val('uploadFolderSelect') || currentFolderId || '';
-  for (const file of fileList) {
-    if (file.size > 50*1024*1024) { toast('File > 50MB!', 'error'); continue; }
-    const itemId = 'uq_' + Date.now();
-    id('uploadQueue').insertAdjacentHTML('beforeend', `<div class="upload-item" id="${itemId}"><div class="upload-item-name">${file.name}</div><div class="progress-bar"><div class="progress-fill" id="${itemId}_p" style="width:0%"></div></div></div>`);
+  const modalHeader = document.querySelector('#uploadModal h3');
+  const originalHeaderText = modalHeader.innerHTML;
+
+  for (let i = 0; i < total; i++) {
+    const file = fileList[i];
+    modalHeader.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Đang tải ${i+1}/${total}...`;
+    
+    if (file.size > 50*1024*1024) { 
+      toast(`${file.name}: File > 50MB!`, 'error'); 
+      continue; 
+    }
+
+    const itemId = 'uq_' + Date.now() + i;
+    id('uploadQueue').insertAdjacentHTML('afterbegin', `
+      <div class="upload-item" id="${itemId}">
+        <div class="upload-item-info">
+          <div class="upload-item-name"><span>[${i+1}/${total}]</span> ${file.name}</div>
+          <div class="progress-bar active"><div class="progress-fill" id="${itemId}_p" style="width:10%"></div></div>
+          <div class="upload-item-status" id="${itemId}_s">Đang chuẩn bị...</div>
+        </div>
+      </div>`);
+
     try {
+      const pFill = id(itemId + '_p');
+      const pStat = id(itemId + '_s');
+      
       const fd = new FormData();
       fd.append('chat_id', settings.channelId);
       fd.append('caption', `📁 ${file.name}\n#telecloud ${folder ? '#' + folder : ''}\nSize: ${formatSize(file.size)}`);
+      
       let method = file.type.startsWith('image/') ? 'sendPhoto' : file.type.startsWith('video/') ? 'sendVideo' : 'sendDocument';
       fd.append(method.replace('send','').toLowerCase(), file, file.name);
+
+      if (pFill) pFill.style.width = '30%';
+      if (pStat) pStat.textContent = 'Đang gửi lên Telegram...';
+
       const res = await tgApiForm(method, fd);
+      
+      if (pFill) pFill.style.width = '80%';
+      if (pStat) pStat.textContent = 'Đang lưu vào chỉ mục...';
+
       const tgObj = res.photo ? res.photo[res.photo.length-1] : res.video || res.document || res.audio;
       const fileUrl = await getFileUrl(tgObj.file_id);
-      await addFile({ messageId: res.message_id, fileId: tgObj.file_id, name: file.name, size: tgObj.file_size, type: file.type, folder, url: fileUrl, urlTs: Date.now(), date: Date.now() });
-      id(itemId).remove();
+      
+      await addFile({ 
+        messageId: res.message_id, 
+        fileId: tgObj.file_id, 
+        name: file.name, 
+        size: tgObj.file_size, 
+        type: file.type, 
+        folder, 
+        url: fileUrl, 
+        urlTs: Date.now(), 
+        date: Date.now() 
+      });
+
+      if (pFill) pFill.style.width = '100%';
+      if (pStat) pStat.innerHTML = '<span style="color:#10b981">Thành công! ✅</span>';
+      setTimeout(() => id(itemId)?.classList.add('fade-out'), 2000);
+      setTimeout(() => id(itemId)?.remove(), 2500);
       render();
-    } catch(e) { toast('Lỗi upload: ' + e.message, 'error'); }
+    } catch(e) { 
+      id(itemId + '_s').innerHTML = `<span style="color:#ef4444">Lỗi: ${e.message}</span>`;
+      toast('Lỗi upload: ' + e.message, 'error'); 
+    }
   }
+  modalHeader.innerHTML = originalHeaderText;
 }
 
 // ── DELETE ───────────────────────────────────────────────────
@@ -352,16 +403,20 @@ function render() {
   updateSidebarCounts();
   renderFileGrid();
   updateStorageStats();
+  
+  // Ẩn hiện nút xóa trong Media Viewer
+  const mediaDel = id('mediaDelBtn');
+  if (mediaDel) isAdminMode ? show('mediaDelBtn') : hide('mediaDelBtn');
 }
 
-function renderFileGrid() {
+function renderFileGrid(skipRefresh = false) {
   const grid = id('fileGrid');
   filteredFiles = getFilteredFiles();
   filteredFiles = sortFiles(filteredFiles);
   renderBreadcrumbs();
 
   let html = '';
-  // 1. Folders - SỬA LỖI: thêm kiểm tra an toàn
+  // 1. Folders
   const levelFolders = folders.filter(f => f && f.id && f.parentId === currentFolderId);
   html += levelFolders.map(f => `
     <div class="file-card folder-card" onclick="navigateToFolder('${f.id}')">
@@ -370,7 +425,7 @@ function renderFileGrid() {
         <div class="file-card-name">${esc(f.name)}</div>
         <div class="file-card-meta">Thư mục</div>
       </div>
-      ${isAdminMode ? `<div class="file-card-actions"><button class="card-action-btn del" onclick="event.stopPropagation();deleteFolder('${f.id}')">🗑️</button></div>` : ''}
+      ${isAdminMode ? `<button class="card-action-btn del grid-del" onclick="event.stopPropagation();deleteFolder('${f.id}')"><i class="fas fa-trash"></i></button>` : ''}
     </div>
   `).join('');
 
@@ -386,6 +441,49 @@ function renderFileGrid() {
   // Cập nhật file count
   const badge = id('fileBadge');
   if (badge) badge.textContent = levelFiles.length + ' file';
+
+  // Tự động làm mới URL cho các file đang hiển thị nếu hết hạn
+  if (!skipRefresh) refreshVisibleUrls(levelFiles);
+}
+
+async function refreshVisibleUrls(visibleFiles) {
+  const now = Date.now();
+  const toRefresh = visibleFiles.filter(f => !f.url || (now - (f.urlTs || 0) > 55 * 60 * 1000)).slice(0, 10);
+  if (toRefresh.length === 0) return;
+
+  const updates = [];
+  for (const f of toRefresh) {
+    try {
+      const newUrl = await getFileUrl(f.fileId);
+      f.url = newUrl;
+      f.urlTs = now;
+      updates.push({ messageId: f.messageId, url: newUrl, urlTs: now });
+      
+      // Cập nhật trực tiếp vào DOM thay vì gọi render()
+      const img = document.querySelector(`img[src*="${f.fileId}"]`) || 
+                  document.querySelector(`.file-card[onclick*="openMedia"] img`); 
+      // Cách tốt hơn: dùng data-attribute hoặc tìm theo index. 
+      // Nhưng đơn giản nhất là render lại sau khi xong toàn bộ batch.
+    } catch (e) { console.warn('Refresh URL failed for', f.name); }
+  }
+
+  if (updates.length > 0) {
+    saveFilesToCache();
+    // Thay vì renderFileGrid(), ta chỉ cần cập nhật lại các ảnh
+    updateImagesInGrid();
+    if (settings.sheetUrl) {
+      await sheetApi({ action: 'updateUrls', updates });
+    }
+  }
+}
+
+function updateImagesInGrid() {
+  const imgs = document.querySelectorAll('.file-thumb');
+  imgs.forEach(img => {
+    // Nếu ảnh chưa có src hoặc src cũ, trình duyệt sẽ tự tải lại khi ta render card
+    // Để an toàn và mượt, ta render lại Grid nhưng KHÔNG gọi refreshVisibleUrls nữa
+    renderFileGrid(true); 
+  });
 }
 
 function buildGridCard(f, i) {
@@ -401,21 +499,24 @@ function buildGridCard(f, i) {
           <div class="list-name">${esc(f.name)}</div>
           <div class="list-meta">${formatSize(f.size)} · ${formatDate(f.date)}</div>
         </div>
+        ${isAdminMode ? `
         <div class="list-actions">
-          <button class="list-action-btn" onclick="event.stopPropagation();downloadFile('${f.url}','${f.name}')" title="Tải"><i class="fas fa-download"></i></button>
-          ${isAdminMode ? `<button class="list-action-btn del" onclick="event.stopPropagation();deleteFile(${f.messageId})" title="Xóa"><i class="fas fa-trash"></i></button>` : ''}
-        </div>
+          <button class="list-action-btn del" onclick="event.stopPropagation();deleteFile(${f.messageId})" title="Xóa"><i class="fas fa-trash"></i></button>
+        </div>` : ''}
       </div>`;
   }
   
   return `
     <div class="file-card" onclick="openMedia(${i})">
-      <div style="position:relative">${thumb}${isVid ? '<div class="video-badge">▶ Video</div>' : ''}</div>
+      <div class="file-card-thumb-wrapper">
+        ${thumb}
+        ${isVid ? '<div class="video-badge"><i class="fas fa-play"></i> Video</div>' : ''}
+      </div>
       <div class="file-card-info">
         <div class="file-card-name">${esc(f.name)}</div>
         <div class="file-card-meta">${formatSize(f.size)} · ${formatDate(f.date)}</div>
       </div>
-      ${isAdminMode ? `<div class="file-card-actions"><button class="card-action-btn del" onclick="event.stopPropagation();deleteFile(${f.messageId})">🗑️</button></div>` : ''}
+      ${isAdminMode ? `<button class="card-action-btn del grid-del" onclick="event.stopPropagation();deleteFile(${f.messageId})"><i class="fas fa-trash"></i></button>` : ''}
     </div>`;
 }
 
@@ -567,6 +668,7 @@ function clearSearch() {
 
 function handleFileSelect(event) {
   uploadFiles(event.target.files);
+  event.target.value = ''; // Reset để có thể chọn lại cùng 1 file
 }
 
 // ── HELPERS ──────────────────────────────────────────────────
@@ -610,7 +712,7 @@ function handleSearch(q) { searchQuery = q; render(); }
 
 function setupDragDrop() {
   document.body.ondragover = e => { e.preventDefault(); if (!id('mainApp').classList.contains('hidden')) show('uploadModal'); };
-  id('dropZone').onchange = e => uploadFiles(e.target.files);
+  // Bỏ listener thừa gây lặp lại
 }
 
 document.addEventListener('DOMContentLoaded', init);
