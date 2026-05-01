@@ -2,7 +2,7 @@
 <html lang="vi">
 <head>
   <meta charset="UTF-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
   <title>TeleCloud – Ổ cứng Telegram</title>
   <meta name="description" content="Biến Telegram thành ổ cứng di động cá nhân. Xem ảnh, phim trực tiếp không cần tải về.">
   <link rel="preconnect" href="https://fonts.googleapis.com">
@@ -11,43 +11,6 @@
   <link rel="stylesheet" href="styles.css">
 </head>
 <body>
-
-<!-- ========== SETUP SCREEN ========== -->
-<div id="setupScreen" class="fullscreen-gate">
-  <div class="gate-card glass">
-    <div class="gate-logo">🌩️</div>
-    <h1>TeleCloud</h1>
-    <p class="gate-subtitle">Telegram làm ổ cứng cá nhân</p>
-    <div class="setup-form" id="setupForm">
-      <div class="form-group">
-        <label><i class="fab fa-telegram"></i> Bot Token</label>
-        <input type="password" id="setupToken" placeholder="1234567890:AABBcc..." autocomplete="off">
-      </div>
-      <div class="form-group">
-        <label><i class="fas fa-hashtag"></i> Channel ID</label>
-        <input type="text" id="setupChannelId" placeholder="-100xxxxxxxxxx">
-      </div>
-      <div class="form-group">
-        <label><i class="fas fa-lock"></i> Mật khẩu bảo vệ <span class="optional">(tuỳ chọn)</span></label>
-        <input type="password" id="setupPassword" placeholder="Để trống nếu không cần">
-      </div>
-      <button id="setupBtn" onclick="saveSetup()" class="btn-primary">
-        <i class="fas fa-rocket"></i> Bắt đầu
-      </button>
-    </div>
-    <div class="setup-guide">
-      <details>
-        <summary>📖 Hướng dẫn cài đặt</summary>
-        <ol>
-          <li>Nhắn <code>/newbot</code> cho <strong>@BotFather</strong> → lấy Bot Token</li>
-          <li>Tạo <strong>Kênh riêng tư</strong> trên Telegram</li>
-          <li>Add bot vào kênh, cấp quyền <strong>Admin</strong></li>
-          <li>Lấy Channel ID: Forward 1 tin từ kênh sang <strong>@userinfobot</strong></li>
-        </ol>
-      </details>
-    </div>
-  </div>
-</div>
 
 <!-- ========== PASSWORD GATE ========== -->
 <div id="passwordGate" class="fullscreen-gate hidden">
@@ -249,7 +212,7 @@
   </nav>
 
   <!-- Mobile Search Overlay -->
-  <div id="mobileSearchOverlay" class="fullscreen-gate hidden glass" style="z-index: 1500; align-items: flex-start; padding-top: 40px; background: rgba(0,0,0,0.8)">
+  <div id="mobileSearchOverlay" class="fullscreen-gate hidden glass" style="z-index: 1500; align-items: flex-start; padding-top: 40px; background: rgba(0,0,0,0.8); touch-action: manipulation;">
     <div class="header-search" style="display: block; width: 100%; max-width: none;">
       <i class="fas fa-search"></i>
       <input type="text" id="mSearchInput" placeholder="Tìm kiếm file..." oninput="handleSearch(this.value)" autofocus style="background:var(--surface)">
@@ -292,7 +255,7 @@
   </div>
 </div>
 
-<!-- ========== MEDIA VIEWER ========== -->
+<!-- ========== MEDIA VIEWER (CÓ THỂ ZOOM) ========== -->
 <div class="media-modal hidden" id="mediaModal">
   <div class="media-backdrop" onclick="closeMediaModal()"></div>
   <div class="media-viewer">

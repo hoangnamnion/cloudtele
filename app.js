@@ -1,5 +1,7 @@
 // ============================================================
 //  TeleCloud – app.js (Full Hierarchical Folder System)
+//  Mặc định: Bot Token & Channel ID có sẵn, không cần nhập
+//  Chống zoom toàn trang, chỉ zoom khi xem ảnh
 // ============================================================
 
 const STORAGE_KEY   = 'tc_files';
@@ -31,20 +33,82 @@ let filteredFiles = [];
 let isSyncing = false;
 let isAdminMode = false;
 
+// ── CHỐNG ZOOM TOÀN TRANG ──────────────────────────────────
+function preventZoom(e) {
+  // Chỉ chặn zoom nếu KHÔNG ở trong media viewer
+  if (!document.getElementById('mediaModal') || document.getElementById('mediaModal').classList.contains('hidden')) {
+    if (e.touches && e.touches.length > 1) {
+      e.preventDefault();
+    }
+    if (e.ctrlKey || e.metaKey) {
+      // Cho phép Ctrl+Scroll nhưng vô hiệu pinch zoom
+    }
+  }
+}
+
+document.addEventListener('touchmove', function(e) {
+  if (e.touches && e.touches.length > 1) {
+    const mediaModal = document.getElementById('mediaModal');
+    if (!mediaModal || mediaModal.classList.contains('hidden')) {
+      e.preventDefault();
+    }
+  }
+}, { passive: false });
+
+document.addEventListener('gesturestart', function(e) {
+  const mediaModal = document.getElementById('mediaModal');
+  if (!mediaModal || mediaModal.classList.contains('hidden')) {
+    e.preventDefault();
+  }
+});
+
+document.addEventListener('gesturechange', function(e) {
+  const mediaModal = document.getElementById('mediaModal');
+  if (!mediaModal || mediaModal.classList.contains('hidden')) {
+    e.preventDefault();
+  }
+});
+
+document.addEventListener('gestureend', function(e) {
+  const mediaModal = document.getElementById('mediaModal');
+  if (!mediaModal || mediaModal.classList.contains('hidden')) {
+    e.preventDefault();
+  }
+});
+
+// Ngăn zoom bằng Ctrl+Scroll hoặc Ctrl+/-
+document.addEventListener('wheel', function(e) {
+  if (e.ctrlKey || e.metaKey) {
+    const mediaModal = document.getElementById('mediaModal');
+    if (!mediaModal || mediaModal.classList.contains('hidden')) {
+      e.preventDefault();
+    }
+  }
+}, { passive: false });
+
+document.addEventListener('keydown', function(e) {
+  // Chặn Ctrl+ / Ctrl- / Ctrl0
+  if ((e.ctrlKey || e.metaKey) && (e.key === '+' || e.key === '-' || e.key === '0')) {
+    const mediaModal = document.getElementById('mediaModal');
+    if (!mediaModal || mediaModal.classList.contains('hidden')) {
+      e.preventDefault();
+    }
+  }
+});
+
 // ── INIT ────────────────────────────────────────────────────
 function init() {
   loadSettings();
   
-  if (DEFAULT_SHEET_URL && settings.sheetUrl !== DEFAULT_SHEET_URL) {
-    settings.sheetUrl = DEFAULT_SHEET_URL;
-    persistSettings();
-  }
-
+  // Luôn khôi phục token mặc định nếu bị xóa
   if (!settings.botToken)  settings.botToken  = DEFAULT_BOT_TOKEN;
   if (!settings.channelId) settings.channelId = DEFAULT_CHANNEL_ID;
+  if (!settings.sheetUrl)  settings.sheetUrl  = DEFAULT_SHEET_URL;
+  persistSettings();
 
   loadFilesFromCache();
-  hide('setupScreen');
+  
+  // Bỏ qua màn hình setup, vào thẳng password gate hoặc app
   if (settings.password) {
     show('passwordGate'); hide('mainApp');
   } else {
@@ -54,7 +118,7 @@ function init() {
 }
 
 async function launchApp() {
-  hide('setupScreen'); hide('passwordGate'); show('mainApp');
+  hide('passwordGate'); show('mainApp');
   fillSettingsDrawer();
   loadFilesFromCache();
   render();
@@ -88,17 +152,6 @@ function saveSettings() {
   persistSettings();
   toggleSettings();
   toast('Đã lưu cài đặt!', 'success');
-}
-function saveSetup() {
-  const t = val('setupToken').trim();
-  const c = val('setupChannelId').trim();
-  if (!t || !c) { toast('Vui lòng nhập Bot Token và Channel ID!', 'error'); return; }
-  settings.botToken  = t;
-  settings.channelId = c;
-  settings.sheetUrl  = val('setupSheetUrl').trim();
-  settings.password  = val('setupPassword').trim();
-  persistSettings();
-  launchApp();
 }
 function fillSettingsDrawer() {
   setVal('stToken',     settings.botToken);
@@ -465,18 +518,11 @@ async function refreshVisibleUrls(visibleFiles) {
       f.url = newUrl;
       f.urlTs = now;
       updates.push({ messageId: f.messageId, url: newUrl, urlTs: now });
-      
-      // Cập nhật trực tiếp vào DOM thay vì gọi render()
-      const img = document.querySelector(`img[src*="${f.fileId}"]`) || 
-                  document.querySelector(`.file-card[onclick*="openMedia"] img`); 
-      // Cách tốt hơn: dùng data-attribute hoặc tìm theo index. 
-      // Nhưng đơn giản nhất là render lại sau khi xong toàn bộ batch.
     } catch (e) { console.warn('Refresh URL failed for', f.name); }
   }
 
   if (updates.length > 0) {
     saveFilesToCache();
-    // Thay vì renderFileGrid(), ta chỉ cần cập nhật lại các ảnh
     updateImagesInGrid();
     if (settings.sheetUrl) {
       await sheetApi({ action: 'updateUrls', updates });
@@ -485,12 +531,7 @@ async function refreshVisibleUrls(visibleFiles) {
 }
 
 function updateImagesInGrid() {
-  const imgs = document.querySelectorAll('.file-thumb');
-  imgs.forEach(img => {
-    // Nếu ảnh chưa có src hoặc src cũ, trình duyệt sẽ tự tải lại khi ta render card
-    // Để an toàn và mượt, ta render lại Grid nhưng KHÔNG gọi refreshVisibleUrls nữa
-    renderFileGrid(true); 
-  });
+  renderFileGrid(true);
 }
 
 function buildGridCard(f, i) {
@@ -642,8 +683,7 @@ function updateStorageStats() {
   if (totalEl) totalEl.textContent = formatSize(totalSize);
   if (filesEl) filesEl.textContent = files.length + ' files';
   if (fillEl) {
-    // Giả lập % sử dụng (giới hạn 2GB cho Telegram bot)
-    const maxSize = 2 * 1024 * 1024 * 1024; // 2GB
+    const maxSize = 2 * 1024 * 1024 * 1024;
     const percent = Math.min((totalSize / maxSize) * 100, 100);
     fillEl.style.width = percent + '%';
   }
@@ -704,7 +744,7 @@ function clearSearch() {
 
 function handleFileSelect(event) {
   uploadFiles(event.target.files);
-  event.target.value = ''; // Reset để có thể chọn lại cùng 1 file
+  event.target.value = '';
 }
 
 // ── HELPERS ──────────────────────────────────────────────────
@@ -733,12 +773,35 @@ async function openMedia(idx) {
   currentMediaIndex = idx; const f = filteredFiles[idx]; if (!f) return;
   if (!f.url || Date.now() - (f.urlTs||0) > 50*60*1000) { try { f.url = await getFileUrl(f.fileId); f.urlTs = Date.now(); saveFiles(); } catch(e){} }
   show('mediaModal'); id('mediaName').textContent = f.name; id('mediaSize').textContent = formatSize(f.size);
+  
+  // Cho phép zoom trong media viewer
+  const metaViewport = document.querySelector('meta[name="viewport"]');
+  if (metaViewport) {
+    metaViewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=5.0, user-scalable=yes');
+  }
+  
   const stage = id('mediaStage');
-  if (f.type.startsWith('image/')) stage.innerHTML = `<img src="${f.url}" style="max-width:100%;max-height:80vh">`;
-  else if (f.type.startsWith('video/')) stage.innerHTML = `<video src="${f.url}" controls autoplay style="max-width:100%;max-height:80vh"></video>`;
+  if (f.type.startsWith('image/')) {
+    stage.innerHTML = `<div class="zoomable-image-container"><img src="${f.url}" style="max-width:100%;max-height:80vh; touch-action: manipulation;"></div>`;
+    // Thêm class để CSS cho phép zoom
+    stage.classList.add('allow-zoom');
+  }
+  else if (f.type.startsWith('video/')) stage.innerHTML = `<video src="${f.url}" controls autoplay style="max-width:100%;max-height:80vh; touch-action: manipulation;"></video>`;
   else stage.innerHTML = `<div class="doc-preview"><h1>📄</h1><p>${f.name}</p><button class="btn-primary" onclick="downloadFile('${f.url}','${f.name}')">Tải về</button></div>`;
 }
-function closeMediaModal() { hide('mediaModal'); id('mediaStage').innerHTML = ''; }
+
+function closeMediaModal() { 
+  hide('mediaModal'); 
+  id('mediaStage').innerHTML = ''; 
+  id('mediaStage').classList.remove('allow-zoom');
+  
+  // Khóa zoom lại khi đóng media viewer
+  const metaViewport = document.querySelector('meta[name="viewport"]');
+  if (metaViewport) {
+    metaViewport.setAttribute('content', 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no');
+  }
+}
+
 function downloadFile(u, n) { const a = document.createElement('a'); a.href = u; a.download = n; a.click(); }
 function shareFile(u, n) { if (u) { navigator.clipboard.writeText(u).then(() => toast('Đã copy link!')); } else toast('Lỗi URL', 'error'); }
 
@@ -748,7 +811,6 @@ function handleSearch(q) { searchQuery = q; render(); }
 
 function setupDragDrop() {
   document.body.ondragover = e => { e.preventDefault(); if (!id('mainApp').classList.contains('hidden')) show('uploadModal'); };
-  // Bỏ listener thừa gây lặp lại
 }
 
 document.addEventListener('DOMContentLoaded', init);
@@ -785,4 +847,3 @@ window.downloadFile = downloadFile;
 window.shareFile = shareFile;
 window.addCustomFolder = addCustomFolder;
 window.checkPassword = checkPassword;
-window.saveSetup = saveSetup;

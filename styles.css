@@ -28,6 +28,12 @@
   -webkit-tap-highlight-color: transparent;
 }
 
+/* ── CHỐNG ZOOM TOÀN TRANG (chỉ trừ media viewer) ── */
+html {
+  touch-action: manipulation;
+  -ms-touch-action: manipulation;
+}
+
 body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, sans-serif;
   background: var(--bg);
@@ -35,6 +41,17 @@ body {
   min-height: 100vh;
   overflow-x: hidden;
   line-height: 1.5;
+  touch-action: manipulation;
+  -ms-touch-action: manipulation;
+  /* Ngăn text selection khi double tap (có thể gây zoom trên iOS) */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Cho phép chọn text trong input */
+input, textarea, [contenteditable] {
+  -webkit-user-select: text;
+  user-select: text;
 }
 
 /* ── Typography & Utilities ── */
@@ -51,7 +68,7 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; }
   -webkit-text-fill-color: transparent;
 }
 
-/* ── Gates (Login/Setup) ── */
+/* ── Gates (Password) ── */
 .fullscreen-gate {
   position: fixed;
   inset: 0;
@@ -61,6 +78,7 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; }
   background: radial-gradient(circle at center, #121225 0%, #050508 100%);
   z-index: 2000;
   padding: 20px;
+  touch-action: manipulation;
 }
 .gate-card {
   background: rgba(12, 12, 22, 0.8);
@@ -505,10 +523,40 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; }
 .drop-zone small { color: var(--muted); font-size: 13px; }
 .link-text { color: var(--accent); }
 
-/* ── Media Viewer ── */
-.media-modal { position: fixed; inset: 0; z-index: 10000; background: rgba(0,0,0,0.98); backdrop-filter: blur(25px); -webkit-backdrop-filter: blur(25px); display: flex; align-items: center; justify-content: center; }
-.media-viewer { display: flex; flex-direction: column; height: 100%; position: relative; z-index: 1; }
-.media-top-bar { display: flex; align-items: center; justify-content: space-between; padding: 16px 24px; background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent); position: absolute; top: 0; left: 0; right: 0; z-index: 10; }
+/* ── Media Viewer (CHO PHÉP ZOOM) ── */
+.media-modal { 
+  position: fixed; 
+  inset: 0; 
+  z-index: 10000; 
+  background: rgba(0,0,0,0.98); 
+  backdrop-filter: blur(25px); 
+  -webkit-backdrop-filter: blur(25px); 
+  display: flex; 
+  align-items: center; 
+  justify-content: center; 
+  /* Cho phép zoom trong media viewer */
+  touch-action: auto;
+}
+.media-viewer { 
+  display: flex; 
+  flex-direction: column; 
+  height: 100%; 
+  position: relative; 
+  z-index: 1; 
+  width: 100%;
+}
+.media-top-bar { 
+  display: flex; 
+  align-items: center; 
+  justify-content: space-between; 
+  padding: 16px 24px; 
+  background: linear-gradient(to bottom, rgba(0,0,0,0.8), transparent); 
+  position: absolute; 
+  top: 0; 
+  left: 0; 
+  right: 0; 
+  z-index: 10; 
+}
 .media-meta { display: flex; flex-direction: column; gap: 4px; text-shadow: 0 2px 4px rgba(0,0,0,0.5); }
 .media-name { font-size: 16px; font-weight: 600; max-width: 60vw; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .media-size { font-size: 13px; color: #ccc; }
@@ -516,8 +564,44 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; }
 .media-controls button { background: rgba(255,255,255,0.1); backdrop-filter: blur(8px); border: none; border-radius: 50%; width: 44px; height: 44px; color: #fff; font-size: 16px; cursor: pointer; transition: 0.2s; display: flex; align-items: center; justify-content: center; }
 .media-controls button:hover { background: var(--accent); transform: scale(1.1); }
 .media-controls .danger-btn:hover { background: var(--danger); }
-.media-stage { flex: 1; display: flex; align-items: center; justify-content: center; padding: 80px 20px; }
-.media-stage img, .media-stage video { max-width: 100%; max-height: 100%; object-fit: contain; border-radius: 8px; box-shadow: 0 20px 60px rgba(0,0,0,0.8); }
+.media-stage { 
+  flex: 1; 
+  display: flex; 
+  align-items: center; 
+  justify-content: center; 
+  padding: 80px 20px; 
+  overflow: auto;
+  /* Cho phép zoom ảnh */
+  touch-action: pan-x pan-y pinch-zoom;
+}
+
+/* Container cho ảnh có thể zoom */
+.zoomable-image-container {
+  overflow: auto;
+  max-width: 100%;
+  max-height: 80vh;
+  touch-action: pan-x pan-y pinch-zoom;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+.zoomable-image-container img {
+  touch-action: pan-x pan-y pinch-zoom;
+  -webkit-user-drag: none;
+  pointer-events: auto;
+}
+
+.media-stage.allow-zoom {
+  overflow: auto;
+  touch-action: pan-x pan-y pinch-zoom;
+}
+.media-stage img, .media-stage video { 
+  max-width: 100%; 
+  max-height: 100%; 
+  object-fit: contain; 
+  border-radius: 8px; 
+  box-shadow: 0 20px 60px rgba(0,0,0,0.8); 
+}
 .media-nav-btn { position: absolute; top: 50%; transform: translateY(-50%); background: rgba(255,255,255,0.05); backdrop-filter: blur(8px); border: none; border-radius: 50%; width: 64px; height: 64px; color: #fff; font-size: 24px; cursor: pointer; transition: 0.2s; z-index: 10; }
 .media-nav-btn:hover { background: rgba(255,255,255,0.15); transform: translateY(-50%) scale(1.1); }
 .prev { left: 24px; }
@@ -540,10 +624,10 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; }
   .sidebar.open { transform: translateX(0); box-shadow: 20px 0 60px rgba(0,0,0,0.8); }
   .main { margin-left: 0; padding: 20px; padding-top: calc(var(--header-h) + 20px); padding-bottom: calc(var(--mobile-nav-h) + 30px); }
   .header-left { min-width: auto; }
-  .header-left .logo span:last-child { display: none; } /* Hide "TeleCloud" text on mobile header */
-  .header-search { display: none; } /* Use mobile search overlay instead */
+  .header-left .logo span:last-child { display: none; }
+  .header-search { display: none; }
   .header-right { flex: 1; justify-content: flex-end; }
-  .btn-upload { display: none; } /* Use FAB */
+  .btn-upload { display: none; }
   .mobile-nav { display: flex; }
   .fab-btn { display: flex; }
   .file-grid { grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 16px; }
@@ -551,12 +635,11 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; }
   .toolbar-right { width: 100%; justify-content: space-between; }
   .section-title { font-size: 24px; }
   .gate-card { padding: 32px 24px; border-radius: 20px; }
-  .media-nav-btn { display: none; } /* Prefer swipe on mobile */
-  .list-actions { opacity: 1; } /* Always show list actions on touch */
-  .file-card-actions { display: none; } /* Hide desktop hover actions, rely on click/modal */
+  .media-nav-btn { display: none; }
+  .list-actions { opacity: 1; }
+  .file-card-actions { display: none; }
 }
 
-/* Ensure overlays only affect mobile layout where they are drawers */
 @media (min-width: 769px) {
   #sidebarOverlay { display: none !important; }
 }
