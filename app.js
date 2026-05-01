@@ -224,6 +224,10 @@ async function syncFromTelegram() {
   isSyncing = true;
   showSyncStatus('syncing');
   try {
+    // 1. Luôn tải dữ liệu mới nhất từ Cloud về trước
+    await loadFilesFromSheet();
+    await loadFolders();
+
     const known = new Set(files.map(f => f.messageId));
     let discovered = [];
     let offset = 0;
