@@ -50,6 +50,7 @@ function doPost(e) {
 
 function handleAction(body) {
   if (body.action === 'addFile')     { addFile(body.file);                                   return output({ ok: true }); }
+  if (body.action === 'addFiles')    { addFiles(body.files);                                 return output({ ok: true }); }
   if (body.action === 'deleteFile')  { deleteFile(body.messageId);                           return output({ ok: true }); }
   if (body.action === 'clearFiles')  { clearFiles();                                         return output({ ok: true }); }
   if (body.action === 'updateUrl')   { updateFileUrl(body.messageId, body.url, body.urlTs);  return output({ ok: true }); }
@@ -83,6 +84,24 @@ function addFile(file) {
     file.type, file.folder || '', file.url || '', file.urlTs || 0,
     file.date, file.thumb || ''
   ]);
+}
+
+function addFiles(files) {
+  if (!Array.isArray(files) || files.length === 0) return;
+  const sheet = getSheet();
+  const data = sheet.getDataRange().getValues();
+  const existingIds = new Set(data.slice(1).map(row => String(row[0])));
+  
+  const toAdd = files.filter(f => f && f.messageId && !existingIds.has(String(f.messageId)));
+  if (toAdd.length === 0) return;
+
+  const rows = toAdd.map(f => [
+    f.messageId, f.fileId, f.name, f.size,
+    f.type, f.folder || '', f.url || '', f.urlTs || 0,
+    f.date, f.thumb || ''
+  ]);
+  
+  sheet.getRange(sheet.getLastRow() + 1, 1, rows.length, 10).setValues(rows);
 }
 
 function deleteFile(messageId) {

@@ -9,7 +9,7 @@ const TG_API        = 'https://api.telegram.org';
 // ── DEFAULT CREDENTIALS (hard-coded – works on any device) ──
 const DEFAULT_BOT_TOKEN  = '8327837990:AAHVz_qXiui3_Thbo2sN4khegqFoLjAWvd0';
 const DEFAULT_CHANNEL_ID = '6754356446';
-const DEFAULT_SHEET_URL  = 'https://script.google.com/macros/s/AKfycbwSaJ-Hqwf4FEk8y-jjNgdVTN3kqQJ8XryazEDG7Jm6nx0umJRq7Ws0TmS-ke83LBkkCQ/exec';
+const DEFAULT_SHEET_URL  = 'https://script.google.com/macros/s/AKfycbxZN5fyOQzfJlHMNG2MihAx9ko6E4uiCilZb0_e1SC3i40JPYpghQV2Z9LYs1H9Oz_bog/exec';
 
 let settings = {
   botToken:  DEFAULT_BOT_TOKEN,
@@ -161,10 +161,12 @@ async function loadFilesFromSheet() {
       }));
       saveFilesToCache();
       render();
+      return true;
     }
   } catch(e) {
     console.warn('loadFilesFromSheet error:', e);
   }
+  return false;
 }
 
 // ---- Backward-compat alias (used in syncFromTelegram) ----
@@ -233,12 +235,8 @@ async function syncFromTelegram() {
   showSyncStatus('syncing');
   try {
     const known = new Set(files.map(f => f.messageId));
-    let newCount = 0;
-    // Telegram Bot API doesn't expose full channel history directly.
-    // We use getUpdates with offset to scan recent messages, and also
-    // fetch by iterating forwardMessages from known IDs.
-    // Best available approach: use copyMessage offset scanning.
-    // We'll pull up to 100 updates at a time.
+    let newFiles = [];
+    
     let offset = 0;
     let attempts = 0;
     const maxAttempts = 5;
@@ -259,18 +257,26 @@ async function syncFromTelegram() {
         if (parsed && !known.has(parsed.messageId)) {
           known.add(parsed.messageId);
           files.push(parsed);
-          newCount++;
+          newFiles.push(parsed);
         }
       }
       attempts++;
       if (updates.length < 100) break;
     }
+    
     // Sort by date descending
     files.sort((a, b) => b.date - a.date);
     saveFiles();
     render();
-    if (newCount > 0) {
-      toast(`✅ Đồng bộ xong! Thêm ${newCount} file mới`, 'success');
+    
+    if (newFiles.length > 0) {
+      toast(`☁️ Đang lưu ${newFiles.length} file mới vào cloud...`, 'info');
+      const res = await sheetApi({ action: 'addFiles', files: newFiles });
+      if (res && res.ok) {
+        toast(`✅ Đã đồng bộ ${newFiles.length} file lên Google Sheets`, 'success');
+      } else {
+        toast('⚠️ Đã lưu local nhưng lỗi khi đẩy lên Cloud', 'warning');
+      }
     } else {
       toast('✅ Dữ liệu đã cập nhật', 'success');
     }
