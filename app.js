@@ -9,7 +9,7 @@ const TG_API        = 'https://api.telegram.org';
 // ── DEFAULT CREDENTIALS (hard-coded – works on any device) ──
 const DEFAULT_BOT_TOKEN  = '8327837990:AAHVz_qXiui3_Thbo2sN4khegqFoLjAWvd0';
 const DEFAULT_CHANNEL_ID = '6754356446';
-const DEFAULT_SHEET_URL  = 'https://script.google.com/macros/s/AKfycbxZN5fyOQzfJlHMNG2MihAx9ko6E4uiCilZb0_e1SC3i40JPYpghQV2Z9LYs1H9Oz_bog/exec';
+const DEFAULT_SHEET_URL  = 'https://script.google.com/macros/s/AKfycbzl47TcGzV9ePkL0mbtICTzB-tbRjrqVM2MWjTUVywFi8Wrq2Iui9RiUnsKNg4GkG25/exec';
 
 let settings = {
   botToken:  DEFAULT_BOT_TOKEN,
