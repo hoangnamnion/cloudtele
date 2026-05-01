@@ -9,7 +9,7 @@ const TG_API        = 'https://api.telegram.org';
 // ── DEFAULT CREDENTIALS (hard-coded – works on any device) ──
 const DEFAULT_BOT_TOKEN  = '8327837990:AAHVz_qXiui3_Thbo2sN4khegqFoLjAWvd0';
 const DEFAULT_CHANNEL_ID = '6754356446';
-const DEFAULT_SHEET_URL  = 'https://script.google.com/macros/s/AKfycbzl47TcGzV9ePkL0mbtICTzB-tbRjrqVM2MWjTUVywFi8Wrq2Iui9RiUnsKNg4GkG25/exec';
+const DEFAULT_SHEET_URL  = 'https://script.google.com/macros/s/AKfycbyEbIFjnc0uH5Fje_i-6AnwCzXGO6aQYNoMTf4EmBsnARt-eziAadp13F0bzw4HLzfF/exec';
 
 let settings = {
   botToken:  DEFAULT_BOT_TOKEN,
@@ -29,10 +29,17 @@ let isSyncing = false;
 // ── INIT ────────────────────────────────────────────────────
 function init() {
   loadSettings();
-  // Always ensure hard-coded credentials are in place
+  
+  // CRITICAL: If a hard-coded URL is provided in the code, prioritize it over localStorage 
+  // to ensure that updates to the backend URL propagate to all devices automatically.
+  if (DEFAULT_SHEET_URL && settings.sheetUrl !== DEFAULT_SHEET_URL) {
+    settings.sheetUrl = DEFAULT_SHEET_URL;
+    persistSettings();
+  }
+
+  // Ensure other credentials are in place
   if (!settings.botToken)  settings.botToken  = DEFAULT_BOT_TOKEN;
   if (!settings.channelId) settings.channelId = DEFAULT_CHANNEL_ID;
-  if (!settings.sheetUrl)  settings.sheetUrl  = DEFAULT_SHEET_URL;
 
   loadFilesFromCache();
   // Always skip setup screen — credentials are hard-coded
@@ -211,18 +218,22 @@ async function getFileUrl(fileId) {
 }
 
 async function refreshFileUrls() {
-  toast('Đang làm mới URL...', 'info');
-  let updated = 0;
+  toast('Đang làm mới link Telegram...', 'info');
+  let updates = [];
   for (const f of files) {
     try {
-      f.url = await getFileUrl(f.fileId);
+      const newUrl = await getFileUrl(f.fileId);
+      f.url = newUrl;
       f.urlTs = Date.now();
-      updated++;
+      updates.push({ messageId: f.messageId, url: f.url, urlTs: f.urlTs });
     } catch(e){}
   }
   saveFiles();
   render();
-  toast(`Đã làm mới ${updated} file`, 'success');
+  if (updates.length > 0 && settings.sheetUrl) {
+    await sheetApi({ action: 'updateUrls', updates });
+  }
+  toast(`Đã làm mới ${updates.length} file`, 'success');
 }
 
 // ── SYNC FROM TELEGRAM ───────────────────────────────────────
@@ -255,6 +266,12 @@ async function syncFromTelegram() {
             String(msg.chat.id) !== '-100' + String(settings.channelId)) continue;
         const parsed = parseMessageToFile(msg);
         if (parsed && !known.has(parsed.messageId)) {
+          // Fetch URL immediately so the Sheet has it
+          try {
+            parsed.url = await getFileUrl(parsed.fileId);
+            parsed.urlTs = Date.now();
+          } catch(e) {}
+          
           known.add(parsed.messageId);
           files.push(parsed);
           newFiles.push(parsed);
@@ -275,7 +292,9 @@ async function syncFromTelegram() {
       if (res && res.ok) {
         toast(`✅ Đã đồng bộ ${newFiles.length} file lên Google Sheets`, 'success');
       } else {
-        toast('⚠️ Đã lưu local nhưng lỗi khi đẩy lên Cloud', 'warning');
+        const errorMsg = res ? res.error : 'Không phản hồi';
+        toast('⚠️ Lỗi Cloud: ' + errorMsg + '. Hãy chắc chắn bạn đã Deploy bản GAS mới nhất!', 'error');
+        console.error('Sheet Sync Error:', res);
       }
     } else {
       toast('✅ Dữ liệu đã cập nhật', 'success');

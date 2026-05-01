@@ -54,6 +54,7 @@ function handleAction(body) {
   if (body.action === 'deleteFile')  { deleteFile(body.messageId);                           return output({ ok: true }); }
   if (body.action === 'clearFiles')  { clearFiles();                                         return output({ ok: true }); }
   if (body.action === 'updateUrl')   { updateFileUrl(body.messageId, body.url, body.urlTs);  return output({ ok: true }); }
+  if (body.action === 'updateUrls')  { updateFileUrlsBatch(body.updates);                    return output({ ok: true }); }
   return output({ ok: false, error: 'Unknown action: ' + body.action });
 }
 
@@ -125,6 +126,28 @@ function updateFileUrl(messageId, url, urlTs) {
       if (urlCol   > 0) sheet.getRange(i + 1, urlCol).setValue(url);
       if (urlTsCol > 0) sheet.getRange(i + 1, urlTsCol).setValue(urlTs);
       break;
+    }
+  }
+}
+
+function updateFileUrlsBatch(updates) {
+  if (!Array.isArray(updates) || updates.length === 0) return;
+  const sheet = getSheet();
+  const data = sheet.getDataRange().getValues();
+  const headers = data[0];
+  const msgIdCol = 0;
+  const urlCol   = headers.indexOf('url');
+  const urlTsCol = headers.indexOf('urlTs');
+
+  const updatesMap = {};
+  updates.forEach(u => { updatesMap[String(u.messageId)] = u; });
+
+  for (let i = 1; i < data.length; i++) {
+    const msgId = String(data[i][msgIdCol]);
+    if (updatesMap[msgId]) {
+      const u = updatesMap[msgId];
+      if (urlCol >= 0)   sheet.getRange(i + 1, urlCol + 1).setValue(u.url);
+      if (urlTsCol >= 0) sheet.getRange(i + 1, urlTsCol + 1).setValue(u.urlTs);
     }
   }
 }
