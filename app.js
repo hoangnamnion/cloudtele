@@ -9,7 +9,7 @@ const TG_API        = 'https://api.telegram.org';
 // ── DEFAULT CREDENTIALS (hard-coded – works on any device) ──
 const DEFAULT_BOT_TOKEN  = '8327837990:AAHVz_qXiui3_Thbo2sN4khegqFoLjAWvd0';
 const DEFAULT_CHANNEL_ID = '6754356446';
-const DEFAULT_SHEET_URL  = 'https://script.google.com/macros/s/AKfycbydk_V1bxX7crDu9AoOKduSAczCwpF_o4YoWXFYhHbF9xBNbXjJ_IBqiOKZqD4zJH4WMA/exec';
+const DEFAULT_SHEET_URL  = 'https://script.google.com/macros/s/AKfycbwSaJ-Hqwf4FEk8y-jjNgdVTN3kqQJ8XryazEDG7Jm6nx0umJRq7Ws0TmS-ke83LBkkCQ/exec';
 
 let settings = {
   botToken:  DEFAULT_BOT_TOKEN,
@@ -119,14 +119,15 @@ function saveFilesToCache() {
 }
 
 // ---- Google Sheets API helper ----
+// GAS 302 redirect + CORS restrictions make POST unreliable from browsers.
+// Solution: send ALL requests as GET with data encoded in URL params.
 async function sheetApi(body) {
   if (!settings.sheetUrl) return null;
   try {
-    const r = await fetch(settings.sheetUrl, {
-      method: 'POST',
-      headers: { 'Content-Type': 'text/plain' }, // avoids CORS preflight
-      body: JSON.stringify(body)
-    });
+    const payload = encodeURIComponent(JSON.stringify(body));
+    const url = `${settings.sheetUrl}?payload=${payload}`;
+    const r = await fetch(url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
     return await r.json();
   } catch(err) {
     console.warn('Sheet API error:', err);
@@ -407,7 +408,7 @@ async function uploadFiles(fileList) {
       let fileUrl = '';
       try { fileUrl = await getFileUrl(fileId); } catch(e){}
 
-      addFile({
+      await addFile({
         messageId: msgId,
         fileId,
         name: file.name,
@@ -420,7 +421,7 @@ async function uploadFiles(fileList) {
         thumb: mt.startsWith('image/') ? fileUrl : null
       });
 
-      setUploadProgress(itemId, 100, 'Đã upload!');
+      setUploadProgress(itemId, 100, 'Đã lưu vào Sheets ✅');
       id(itemId + '_i').textContent = '✅';
       render();
     } catch(err) {
