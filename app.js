@@ -9,7 +9,7 @@ const TG_API        = 'https://api.telegram.org';
 // ── DEFAULT CREDENTIALS (hard-coded – works on any device) ──
 const DEFAULT_BOT_TOKEN  = '8327837990:AAHVz_qXiui3_Thbo2sN4khegqFoLjAWvd0';
 const DEFAULT_CHANNEL_ID = '6754356446';
-const DEFAULT_SHEET_URL  = 'https://script.google.com/macros/s/AKfycbyEbIFjnc0uH5Fje_i-6AnwCzXGO6aQYNoMTf4EmBsnARt-eziAadp13F0bzw4HLzfF/exec';
+const DEFAULT_SHEET_URL  = 'https://green-forest-9ebb.caovannamutt.workers.dev/';
 
 let settings = {
   botToken:  DEFAULT_BOT_TOKEN,
@@ -125,19 +125,19 @@ function saveFilesToCache() {
   localStorage.setItem(STORAGE_KEY, JSON.stringify(files));
 }
 
-// ---- Google Sheets API helper ----
-// GAS 302 redirect + CORS restrictions make POST unreliable from browsers.
-// Solution: send ALL requests as GET with data encoded in URL params.
+// ---- Cloudflare Worker API helpers ----
 async function sheetApi(body) {
   if (!settings.sheetUrl) return null;
   try {
-    const payload = encodeURIComponent(JSON.stringify(body));
-    const url = `${settings.sheetUrl}?payload=${payload}`;
-    const r = await fetch(url);
+    const r = await fetch(settings.sheetUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
     if (!r.ok) throw new Error('HTTP ' + r.status);
     return await r.json();
   } catch(err) {
-    console.warn('Sheet API error:', err);
+    console.warn('API error:', err);
     return null;
   }
 }
@@ -146,9 +146,10 @@ async function sheetGet(params = '') {
   try {
     const url = settings.sheetUrl + (params ? '?' + params : '');
     const r = await fetch(url);
+    if (!r.ok) throw new Error('HTTP ' + r.status);
     return await r.json();
   } catch(err) {
-    console.warn('Sheet GET error:', err);
+    console.warn('API GET error:', err);
     return null;
   }
 }
