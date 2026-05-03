@@ -40,6 +40,7 @@ let currentMediaIndex = -1;
 let filteredFiles = [];
 let isSyncing = false;
 let isAdminMode = false;
+let currentTab = 'dashboard';
 
 // ── LƯU TRẠNG THÁI SCROLL TRƯỚC KHI MỞ ẢNH ──
 let savedScrollPosition = { x: 0, y: 0 };
@@ -95,6 +96,9 @@ document.addEventListener('keydown', function(e) {
 // ╚═══════════════════════════════════════════════════════════╝
 
 function init() {
+  initTheme();
+  const yearEl = id('year');
+  if (yearEl) yearEl.textContent = new Date().getFullYear();
   loadSettings();
   
   if (!settings.botToken)  settings.botToken  = DEFAULT_BOT_TOKEN;
@@ -112,6 +116,27 @@ function init() {
     launchApp();
   }
   setupDragDrop();
+}
+
+function initTheme() {
+  const theme = localStorage.getItem('tc_theme') || 'dark';
+  document.documentElement.setAttribute('data-theme', theme);
+  const btn = document.getElementById('themeToggle');
+  if (btn) {
+    btn.innerHTML = theme === 'dark' ? '<span class="icon">🌙</span>' : '<span class="icon">☀️</span>';
+    btn.onclick = toggleTheme;
+  }
+}
+
+function toggleTheme() {
+  const current = document.documentElement.getAttribute('data-theme');
+  const next = current === 'dark' ? 'light' : 'dark';
+  document.documentElement.setAttribute('data-theme', next);
+  localStorage.setItem('tc_theme', next);
+  const btn = document.getElementById('themeToggle');
+  if (btn) {
+    btn.innerHTML = next === 'dark' ? '<span class="icon">🌙</span>' : '<span class="icon">☀️</span>';
+  }
 }
 
 async function launchApp() {
@@ -738,13 +763,135 @@ function sortFiles(list) {
 
 function render() {
   updateSidebarCounts();
-  renderFileGrid();
+  
+  if (currentTab === 'dashboard') {
+    show('dashboardView');
+    hide('filesView');
+    renderDashboard();
+  } else {
+    hide('dashboardView');
+    show('filesView');
+    renderFileGrid();
+  }
+  
   updateStorageStats();
   
   const mediaDel = id('mediaDelBtn');
   if (mediaDel) {
     isAdminMode ? mediaDel.classList.remove('hidden') : mediaDel.classList.add('hidden');
   }
+
+  // Update active sidebar nav
+  document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
+  if (currentTab === 'dashboard') {
+    id('nav-dashboard')?.classList.add('active');
+  } else {
+    id('nav-files')?.classList.add('active');
+  }
+
+  // Update active mobile nav
+  document.querySelectorAll('.m-nav-item').forEach(el => el.classList.remove('active'));
+  if (currentTab === 'dashboard') {
+    id('m-nav-home')?.classList.add('active');
+  } else if (currentTab === 'files') {
+    id('m-nav-files')?.classList.add('active');
+  }
+}
+
+function showView(tab) {
+  currentTab = tab;
+  if (tab === 'files') {
+    currentFolder = 'all';
+    currentFolderId = null;
+    searchQuery = '';
+  }
+  render();
+}
+
+function renderDashboard() {
+  updateGreeting();
+  updateDashboardStats();
+  renderRecentFiles();
+}
+
+function updateGreeting() {
+  const hour = new Date().getHours();
+  let g = 'Chào buổi tối!';
+  if (hour < 12) g = 'Chào buổi sáng!';
+  else if (hour < 18) g = 'Chào buổi chiều!';
+  
+  const el = id('greetingText');
+  if (el) el.textContent = g;
+}
+
+function updateDashboardStats() {
+  const totalFiles = files.length;
+  const totalSize = files.reduce((acc, f) => acc + (f.size || 0), 0);
+  const totalFolders = folders.length;
+  
+  setTxt('stat-total-files', totalFiles);
+  setTxt('stat-total-size', formatSize(totalSize));
+  setTxt('stat-total-folders', totalFolders);
+  
+  // Categories count
+  const cats = { image: 0, video: 0, audio: 0, document: 0 };
+  files.forEach(f => {
+    if (f.type.startsWith('image/')) cats.image++;
+    else if (f.type.startsWith('video/')) cats.video++;
+    else if (f.type.startsWith('audio/')) cats.audio++;
+    else cats.document++;
+  });
+  
+  setTxt('cat-img-count', cats.image + ' file');
+  setTxt('cat-vid-count', cats.video + ' file');
+  setTxt('cat-aud-count', cats.audio + ' file');
+  setTxt('cat-doc-count', cats.document + ' file');
+}
+
+function renderRecentFiles() {
+  const container = id('recentList');
+  if (!container) return;
+  
+  const recent = files.slice(0, 10);
+  if (recent.length === 0) {
+    container.innerHTML = '<p style="color:var(--muted);font-size:14px;padding:20px">Chưa có file nào gần đây.</p>';
+    return;
+  }
+  
+  container.innerHTML = recent.map((f, i) => {
+    const thumb = getFileThumb(f);
+    return `
+      <div class="recent-item" onclick="openMedia(${files.indexOf(f)})">
+        <img src="${thumb}" class="recent-thumb" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2280%22>📄</text></svg>'">
+        <div class="recent-name">${esc(f.name)}</div>
+      </div>
+    `;
+  }).join('');
+}
+
+function filterByCategory(cat) {
+  currentTab = 'files';
+  currentFolder = 'all';
+  searchQuery = '';
+  
+  // Custom filter logic could be added here if needed, 
+  // but for now we just switch to files and let user search or we could auto-fill search
+  if (cat === 'image') searchQuery = '.jpg .png .jpeg .gif';
+  else if (cat === 'video') searchQuery = '.mp4 .mkv .mov';
+  else if (cat === 'audio') searchQuery = '.mp3 .wav .flac';
+  else if (cat === 'document') searchQuery = '.pdf .docx .txt .zip';
+  
+  const searchInput = id('searchInput');
+  if (searchInput) searchInput.value = searchQuery;
+  
+  render();
+}
+
+function getFileThumb(f) {
+  if (f.type.startsWith('image/')) return f.url || '';
+  if (f.type.startsWith('video/')) return 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2280%22>🎬</text></svg>';
+  if (f.type.startsWith('audio/')) return 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2280%22>🎵</text></svg>';
+  return 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2280%22>📄</text></svg>';
 }
 
 function renderFileGrid(skipRefresh = false) {
@@ -1013,7 +1160,14 @@ function updateSidebarCounts() {
   
   ['all', 'image', 'video', 'audio', 'doc', 'other'].forEach(k => {
     const el = id('cnt-' + k);
-    if (el) el.textContent = counts[k];
+    if (el) {
+      const countSpan = el.querySelector('span');
+      if (countSpan) {
+        countSpan.textContent = counts[k];
+      } else {
+        el.textContent = counts[k];
+      }
+    }
   });
   
   const nav = id('customFolders');
