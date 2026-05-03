@@ -789,6 +789,25 @@ async function clearAllData() {
   toast('Đã xóa toàn bộ dữ liệu!', 'success');
 }
 
+async function clearLocalData() {
+  if (!confirm('Hành động này sẽ xóa dữ liệu trên máy này nhưng KHÔNG xóa trên Google Sheets.\n\nBạn có muốn tiếp tục?')) return;
+  
+  localStorage.removeItem(STORAGE_KEY);
+  localStorage.removeItem('tc_folders');
+  localStorage.removeItem('tc_urlCache');
+  
+  files = [];
+  folders = [];
+  urlCache.clear();
+  
+  render();
+  toast('Đã xóa dữ liệu máy cục bộ!', 'success');
+  
+  setTimeout(() => {
+    window.location.reload();
+  }, 1000);
+}
+
 // ╔═══════════════════════════════════════════════════════════╗
 // ║                    SORT                                  ║
 // ╚═══════════════════════════════════════════════════════════╝
@@ -1616,6 +1635,7 @@ window.closeUploadModal = function() { hide('uploadModal'); };
 window.closeMediaModal = closeMediaModal;
 window.saveSettings = saveSettings;
 window.clearAllData = clearAllData;
+window.clearLocalData = clearLocalData;
 window.syncFromTelegram = syncFromTelegram;
 window.handleSearch = handleSearch;
 window.navigateMedia = function(d) {
