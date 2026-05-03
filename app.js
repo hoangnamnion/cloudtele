@@ -498,6 +498,12 @@ function parseMessageToFile(msg) {
     fileSize = msg.document.file_size;
     mime = msg.document.mime_type || 'application/octet-stream';
     name = msg.document.file_name || `file_${msg.message_id}`;
+    
+    // Nếu là document nhưng đuôi file là ảnh, ép kiểu về image
+    const ext = name.toLowerCase().split('.').pop();
+    if (['jpg','jpeg','png','gif','webp','heic'].includes(ext) && !mime.startsWith('image/')) {
+      mime = 'image/' + (ext === 'jpg' ? 'jpeg' : ext);
+    }
   } else if (msg.audio) {
     fileId = msg.audio.file_id;
     fileSize = msg.audio.file_size;
@@ -642,23 +648,52 @@ async function uploadSingleFile(item, total) {
   try {
     const fd = new FormData();
     fd.append('chat_id', settings.channelId);
-    fd.append('caption', `📁 ${file.name}\n#telecloud ${folder ? '#' + folder : ''}\nSize: ${formatSize(file.size)}`);
     
-    let method;
-    if (file.type.startsWith('image/')) {
-      method = 'sendPhoto';
-      fd.append('photo', file, file.name);
-    } else if (file.type.startsWith('video/')) {
-      method = 'sendVideo';
-      fd.append('video', file, file.name);
-    } else {
-      method = 'sendDocument';
-      fd.append('document', file, file.name);
+    // Xử lý tên file cho Android (đôi khi bị mất extension hoặc tên lạ)
+    let fileName = file.name || `file_${Date.now()}`;
+    let fileType = file.type || '';
+    
+    // Guess mime type if empty
+    if (!fileType && fileName.includes('.')) {
+      const ext = fileName.split('.').pop().toLowerCase();
+      const mimeMap = { 'jpg': 'image/jpeg', 'jpeg': 'image/jpeg', 'png': 'image/png', 'gif': 'image/gif', 'webp': 'image/webp', 'mp4': 'video/mp4', 'pdf': 'application/pdf' };
+      fileType = mimeMap[ext] || 'application/octet-stream';
     }
+
+    fd.append('caption', `📁 ${fileName}\n#telecloud ${folder ? '#' + folder : ''}\nSize: ${formatSize(file.size)}`);
+    
+    let method = 'sendDocument'; // Mặc định dùng sendDocument cho chắc chắn trên Android
+    let field = 'document';
+
+    if (fileType.startsWith('image/') && !fileName.toLowerCase().endsWith('.webp')) {
+      // Dùng sendPhoto cho ảnh (trừ webp đôi khi Telegram Bot API kén)
+      method = 'sendPhoto';
+      field = 'photo';
+    } else if (fileType.startsWith('video/')) {
+      method = 'sendVideo';
+      field = 'video';
+    }
+
+    fd.append(field, file, fileName);
     
     updateUploadUI(itemId, 25, 'Đang gửi lên Telegram...', 'uploading');
     
-    const res = await tgApiForm(method, fd);
+    let res;
+    try {
+      res = await tgApiForm(method, fd);
+    } catch (err) {
+      // Nếu sendPhoto/sendVideo lỗi, thử lại bằng sendDocument (vạn năng)
+      if (method !== 'sendDocument') {
+        updateUploadUI(itemId, 30, 'Thử lại bằng chế độ Document...', 'uploading');
+        const fd2 = new FormData();
+        fd2.append('chat_id', settings.channelId);
+        fd2.append('caption', `📁 ${fileName}\n#telecloud ${folder ? '#' + folder : ''}\nSize: ${formatSize(file.size)}`);
+        fd2.append('document', file, fileName);
+        res = await tgApiForm('sendDocument', fd2);
+      } else {
+        throw err;
+      }
+    }
     
     updateUploadUI(itemId, 65, 'Đang lấy URL...', 'uploading');
     
@@ -671,9 +706,9 @@ async function uploadSingleFile(item, total) {
     await addFile({
       messageId: res.message_id,
       fileId: tgObj.file_id,
-      name: file.name,
+      name: fileName,
       size: tgObj.file_size || file.size,
-      type: file.type || 'application/octet-stream',
+      type: fileType || 'application/octet-stream',
       folder,
       url: fileUrl,
       urlTs: Date.now(),
@@ -1023,11 +1058,12 @@ function buildGridCard(f, i) {
           <div class="list-name">${esc(f.name)}</div>
           <div class="list-meta">${formatSize(f.size)} · ${formatDate(f.date)}</div>
         </div>
+        ${isAdminMode ? `
         <div class="list-actions">
           <button class="list-action-btn del" onclick="event.stopPropagation();deleteFile(${f.messageId})" title="Xóa">
             <i class="fas fa-trash"></i>
           </button>
-        </div>
+        </div>` : ''}
       </div>`;
   }
   
