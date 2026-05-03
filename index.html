@@ -48,6 +48,9 @@
       <button class="clear-btn hidden" id="clearSearchBtn" onclick="clearSearch()"><i class="fas fa-times"></i></button>
     </div>
     <div class="header-right">
+      <button class="icon-btn mobile-sync-btn" onclick="syncFromTelegram()" title="Đồng bộ">
+        <i class="fas fa-sync-alt" id="headerSyncIcon"></i>
+      </button>
       <button class="theme-toggle" id="themeToggle" title="Chuyển chế độ sáng/tối">
         <span class="icon">🌙</span>
       </button>
@@ -314,9 +317,9 @@
       <i class="fas fa-plus-circle" style="font-size:28px;color:var(--accent);filter:drop-shadow(0 0 10px rgba(99,102,241,0.5))"></i>
       <span>Tải lên</span>
     </a>
-    <a class="m-nav-item" onclick="showView('files')" id="m-nav-files">
+    <a class="m-nav-item" onclick="toggleSidebar()" id="m-nav-folders">
       <i class="fas fa-folder"></i>
-      <span>File</span>
+      <span>Thư mục</span>
     </a>
     <a class="m-nav-item" onclick="toggleSettings()" id="m-nav-settings">
       <i class="fas fa-user-cog"></i>

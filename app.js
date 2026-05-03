@@ -511,13 +511,13 @@ function parseMessageToFile(msg) {
 
 function showSyncStatus(state) {
   const btn = id('syncBtn');
-  if (!btn) return;
+  const mobileBtn = document.querySelector('.mobile-sync-btn');
   if (state === 'syncing') {
-    btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sync...';
-    btn.disabled = true;
+    if (btn) { btn.innerHTML = '<i class="fas fa-spinner fa-spin"></i> Sync...'; btn.disabled = true; }
+    if (mobileBtn) { mobileBtn.classList.add('syncing'); mobileBtn.disabled = true; }
   } else {
-    btn.innerHTML = '<i class="fas fa-sync-alt"></i> Làm mới';
-    btn.disabled = false;
+    if (btn) { btn.innerHTML = '<i class="fas fa-sync-alt"></i> Làm mới'; btn.disabled = false; }
+    if (mobileBtn) { mobileBtn.classList.remove('syncing'); mobileBtn.disabled = false; }
   }
 }
 

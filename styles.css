@@ -433,6 +433,23 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; }
 }
 .btn-upload:hover { background: var(--accent-grad); border-color: transparent; color: #fff; box-shadow: 0 4px 15px var(--glow); }
 
+/* Mobile sync btn: hidden on desktop */
+.mobile-sync-btn { display: none; }
+
+@media (max-width: 768px) {
+  .mobile-sync-btn {
+    display: flex;
+    color: var(--sub);
+  }
+  .mobile-sync-btn.syncing i {
+    animation: spin 1s linear infinite;
+  }
+}
+@keyframes spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
 /* ── Mobile Nav & FAB (Hidden on Desktop) ── */
 .mobile-nav {
   position: fixed;
