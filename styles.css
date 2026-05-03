@@ -651,7 +651,70 @@ h1, h2, h3 { font-weight: 700; letter-spacing: -0.02em; }
 .sort-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 3px var(--glow); }
 
 /* ── File Grid ── */
-.file-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); gap: 24px; }
+.file-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(180px, 1fr));
+  gap: 16px;
+  transition: all 0.3s ease;
+}
+
+/* Gallery Mode */
+.file-grid.gallery {
+  grid-template-columns: repeat(auto-fill, minmax(220px, 1fr));
+  gap: 10px;
+}
+
+.file-grid.gallery .file-card {
+  border-radius: 12px;
+  overflow: hidden;
+  aspect-ratio: 1/1;
+  border: none;
+}
+
+.file-grid.gallery .file-thumb-placeholder,
+.file-grid.gallery .file-card img {
+  height: 100%;
+  border-radius: 0;
+  object-fit: cover;
+}
+
+.file-grid.gallery .file-card-info {
+  position: absolute;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  background: linear-gradient(transparent, rgba(0,0,0,0.85));
+  padding: 30px 15px 15px;
+  color: #fff;
+  opacity: 0;
+  transition: 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  transform: translateY(10px);
+}
+
+.file-grid.gallery .file-card:hover .file-card-info {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.file-grid.gallery .file-card-name {
+  color: #fff;
+  font-size: 14px;
+  font-weight: 500;
+}
+
+.file-grid.gallery .file-card-meta {
+  color: rgba(255,255,255,0.7);
+  font-size: 12px;
+}
+
+#sentinel {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  padding: 40px;
+  opacity: 0.7;
+}
 .file-grid.list-view { grid-template-columns: 1fr; gap: 12px; }
 
 /* File Card - Grid */

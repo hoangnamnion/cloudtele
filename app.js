@@ -40,7 +40,12 @@ let currentMediaIndex = -1;
 let filteredFiles = [];
 let isSyncing = false;
 let isAdminMode = false;
-let currentTab = 'dashboard';
+let currentTab = 'files';
+
+// ── PHÂN TRANG & HIỆU NĂNG ──
+let itemsPerPage = window.innerWidth <= 768 ? 20 : 40;
+let currentPage = 1;
+let observer = null;
 
 // ── LƯU TRẠNG THÁI SCROLL TRƯỚC KHI MỞ ẢNH ──
 let savedScrollPosition = { x: 0, y: 0 };
@@ -286,13 +291,30 @@ async function loadFilesFromSheet() {
   if (!settings.sheetUrl) return;
   const res = await sheetGet('action=getFiles');
   if (res && res.ok && Array.isArray(res.files)) {
-    files = res.files.map(f => ({
+    const sheetFiles = res.files.map(f => ({
       ...f,
       messageId: Number(f.messageId),
       size: Number(f.size) || 0,
       urlTs: Number(f.urlTs) || 0,
       date: Number(f.date) || 0
     }));
+
+    // Merge logic: Giữ lại những file mới tìm được từ Telegram chưa kịp đẩy lên Sheet
+    const localMap = new Map(files.map(f => [f.messageId, f]));
+    sheetFiles.forEach(f => {
+      // Nếu file đã có local, cập nhật thông tin (vì Sheet có thể có tên mới, folder mới)
+      // Nhưng giữ lại URL nếu local có URL mới hơn
+      const existing = localMap.get(f.messageId);
+      if (existing) {
+        if (existing.url && (existing.urlTs || 0) > (f.urlTs || 0)) {
+          f.url = existing.url;
+          f.urlTs = existing.urlTs;
+        }
+      }
+      localMap.set(f.messageId, f);
+    });
+
+    files = Array.from(localMap.values()).sort((a, b) => b.date - a.date);
     saveFilesToCache();
     render();
   }
@@ -402,8 +424,7 @@ async function syncFromTelegram() {
   isSyncing = true;
   showSyncStatus('syncing');
   try {
-    await loadFilesFromSheet();
-    await loadFolders();
+    // Files và folders đã được load ở launchApp(), ở đây chỉ sync Telegram
 
     const known = new Set(files.map(f => f.messageId));
     let discovered = [];
@@ -763,17 +784,7 @@ function sortFiles(list) {
 
 function render() {
   updateSidebarCounts();
-  
-  if (currentTab === 'dashboard') {
-    show('dashboardView');
-    hide('filesView');
-    renderDashboard();
-  } else {
-    hide('dashboardView');
-    show('filesView');
-    renderFileGrid();
-  }
-  
+  renderFileGrid();
   updateStorageStats();
   
   const mediaDel = id('mediaDelBtn');
@@ -783,19 +794,11 @@ function render() {
 
   // Update active sidebar nav
   document.querySelectorAll('.nav-item').forEach(el => el.classList.remove('active'));
-  if (currentTab === 'dashboard') {
-    id('nav-dashboard')?.classList.add('active');
-  } else {
-    id('nav-files')?.classList.add('active');
-  }
+  id('nav-files')?.classList.add('active');
 
   // Update active mobile nav
   document.querySelectorAll('.m-nav-item').forEach(el => el.classList.remove('active'));
-  if (currentTab === 'dashboard') {
-    id('m-nav-home')?.classList.add('active');
-  } else if (currentTab === 'files') {
-    id('m-nav-files')?.classList.add('active');
-  }
+  id('m-nav-files')?.classList.add('active');
 }
 
 function showView(tab) {
@@ -808,66 +811,23 @@ function showView(tab) {
   render();
 }
 
-function renderDashboard() {
-  updateGreeting();
-  updateDashboardStats();
-  renderRecentFiles();
+function setView(view) {
+  currentView = view;
+  const gridBtn = id('gridBtn');
+  const galleryBtn = id('galleryBtn');
+  const listBtn = id('listBtn');
+  
+  gridBtn?.classList.remove('active');
+  galleryBtn?.classList.remove('active');
+  listBtn?.classList.remove('active');
+  
+  if (view === 'grid') gridBtn?.classList.add('active');
+  else if (view === 'gallery') galleryBtn?.classList.add('active');
+  else if (view === 'list') listBtn?.classList.add('active');
+  
+  render();
 }
 
-function updateGreeting() {
-  const hour = new Date().getHours();
-  let g = 'Chào buổi tối!';
-  if (hour < 12) g = 'Chào buổi sáng!';
-  else if (hour < 18) g = 'Chào buổi chiều!';
-  
-  const el = id('greetingText');
-  if (el) el.textContent = g;
-}
-
-function updateDashboardStats() {
-  const totalFiles = files.length;
-  const totalSize = files.reduce((acc, f) => acc + (f.size || 0), 0);
-  const totalFolders = folders.length;
-  
-  setTxt('stat-total-files', totalFiles);
-  setTxt('stat-total-size', formatSize(totalSize));
-  setTxt('stat-total-folders', totalFolders);
-  
-  // Categories count
-  const cats = { image: 0, video: 0, audio: 0, document: 0 };
-  files.forEach(f => {
-    if (f.type.startsWith('image/')) cats.image++;
-    else if (f.type.startsWith('video/')) cats.video++;
-    else if (f.type.startsWith('audio/')) cats.audio++;
-    else cats.document++;
-  });
-  
-  setTxt('cat-img-count', cats.image + ' file');
-  setTxt('cat-vid-count', cats.video + ' file');
-  setTxt('cat-aud-count', cats.audio + ' file');
-  setTxt('cat-doc-count', cats.document + ' file');
-}
-
-function renderRecentFiles() {
-  const container = id('recentList');
-  if (!container) return;
-  
-  const recent = files.slice(0, 10);
-  if (recent.length === 0) {
-    container.innerHTML = '<p style="color:var(--muted);font-size:14px;padding:20px">Chưa có file nào gần đây.</p>';
-    return;
-  }
-  
-  container.innerHTML = recent.map((f, i) => {
-    const thumb = getFileThumb(f);
-    return `
-      <div class="recent-item" onclick="openMedia(${files.indexOf(f)})">
-        <img src="${thumb}" class="recent-thumb" onerror="this.src='data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2280%22>📄</text></svg>'">
-        <div class="recent-name">${esc(f.name)}</div>
-      </div>
-    `;
-  }).join('');
-}
 
 function filterByCategory(cat) {
   currentTab = 'files';
@@ -894,41 +854,20 @@ function getFileThumb(f) {
   return 'data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 100 100%22><text y=%22.9em%22 font-size=%2280%22>📄</text></svg>';
 }
 
-function renderFileGrid(skipRefresh = false) {
+function renderFileGrid(skipRefresh = false, append = false) {
   const grid = id('fileGrid');
   if (!grid) return;
+  
+  // Áp dụng class view
+  grid.classList.remove('list-view', 'gallery');
+  if (currentView === 'list') grid.classList.add('list-view');
+  else if (currentView === 'gallery') grid.classList.add('gallery');
   
   filteredFiles = getFilteredFiles();
   filteredFiles = sortFiles(filteredFiles);
   renderBreadcrumbs();
 
-  let html = '';
-  
-  // Folders
-  const levelFolders = folders.filter(f => f && f.id && f.parentId === currentFolderId);
-  html += levelFolders.map(f => `
-    <div class="file-card folder-card" onclick="navigateToFolder('${esc(f.id)}')">
-      <div class="file-thumb-placeholder">
-        <i class="fas fa-folder" style="color:#fbbf24;font-size:48px"></i>
-      </div>
-      <div class="file-card-info">
-        <div class="file-card-name">${esc(f.name)}</div>
-        <div class="file-card-meta">Thư mục</div>
-      </div>
-      ${isAdminMode ? `
-      <div class="file-card-actions">
-        <button class="card-action-btn edit" onclick="event.stopPropagation();renameFolder('${esc(f.id)}')" title="Đổi tên">
-          <i class="fas fa-edit"></i>
-        </button>
-        <button class="card-action-btn del" onclick="event.stopPropagation();deleteFolder('${esc(f.id)}')" title="Xóa">
-          <i class="fas fa-trash"></i>
-        </button>
-      </div>` : ''}
-    </div>
-  `).join('');
-
-  // Files
-  const levelFiles = currentFolder === 'all' 
+  const levelFilesAll = currentFolder === 'all' 
     ? filteredFiles.filter(f => {
         if (currentFolderId === null) {
           return !f.folder || f.folder === 'all' || !folders.find(fol => fol && fol.id === f.folder);
@@ -937,18 +876,56 @@ function renderFileGrid(skipRefresh = false) {
       })
     : filteredFiles;
 
-  html += levelFiles.map((f, localIdx) => {
+  const levelFolders = folders.filter(f => f && f.id && f.parentId === currentFolderId);
+  
+  // Lấy danh sách file cho trang hiện tại
+  const totalItems = currentPage * itemsPerPage;
+  const levelFiles = levelFilesAll.slice(0, totalItems);
+
+  let html = '';
+  
+  // Folders (chỉ hiện ở trang 1)
+  if (currentPage === 1) {
+    html += levelFolders.map(f => `
+      <div class="file-card folder-card" onclick="navigateToFolder('${esc(f.id)}')">
+        <div class="file-thumb-placeholder">
+          <i class="fas fa-folder" style="color:#fbbf24;font-size:48px"></i>
+        </div>
+        <div class="file-card-info">
+          <div class="file-card-name">${esc(f.name)}</div>
+          <div class="file-card-meta">Thư mục</div>
+        </div>
+        ${isAdminMode ? `
+        <div class="file-card-actions">
+          <button class="card-action-btn edit" onclick="event.stopPropagation();renameFolder('${esc(f.id)}')" title="Đổi tên">
+            <i class="fas fa-edit"></i>
+          </button>
+          <button class="card-action-btn del" onclick="event.stopPropagation();deleteFolder('${esc(f.id)}')" title="Xóa">
+            <i class="fas fa-trash"></i>
+          </button>
+        </div>` : ''}
+      </div>
+    `).join('');
+  }
+
+  // Files
+  html += levelFiles.map((f) => {
     const globalIdx = filteredFiles.indexOf(f);
     return buildGridCard(f, globalIdx);
   }).join('');
   
+  // Add sentinel for infinite scroll
+  if (levelFiles.length < levelFilesAll.length) {
+    html += `<div id="sentinel" style="height:20px; width:100%; grid-column: 1/-1; display:flex; justify-content:center; padding:20px;">
+              <i class="fas fa-spinner fa-spin" style="font-size:24px; color:var(--accent)"></i>
+             </div>`;
+  }
+
   grid.innerHTML = html;
   
-  // Preload ảnh visible
-  if (currentView === 'grid') {
-    preloadVisibleImages(levelFiles);
-  }
-  
+  // Setup Infinite Scroll Observer
+  setupInfiniteScroll();
+
   if (levelFiles.length > 0 || levelFolders.length > 0) {
     hide('emptyState');
   } else {
@@ -956,9 +933,25 @@ function renderFileGrid(skipRefresh = false) {
   }
   
   const badge = id('fileBadge');
-  if (badge) badge.textContent = levelFiles.length + ' file';
+  if (badge) badge.textContent = levelFilesAll.length + ' file';
 
   if (!skipRefresh) refreshVisibleUrls(levelFiles);
+}
+
+function setupInfiniteScroll() {
+  if (observer) observer.disconnect();
+  
+  const sentinel = id('sentinel');
+  if (!sentinel) return;
+
+  observer = new IntersectionObserver((entries) => {
+    if (entries[0].isIntersecting) {
+      currentPage++;
+      renderFileGrid(false);
+    }
+  }, { rootMargin: '200px' });
+  
+  observer.observe(sentinel);
 }
 
 function preloadVisibleImages(visibleFiles) {
@@ -1030,12 +1023,11 @@ function buildGridCard(f, i) {
           <div class="list-name">${esc(f.name)}</div>
           <div class="list-meta">${formatSize(f.size)} · ${formatDate(f.date)}</div>
         </div>
-        ${isAdminMode ? `
         <div class="list-actions">
           <button class="list-action-btn del" onclick="event.stopPropagation();deleteFile(${f.messageId})" title="Xóa">
             <i class="fas fa-trash"></i>
           </button>
-        </div>` : ''}
+        </div>
       </div>`;
   }
   

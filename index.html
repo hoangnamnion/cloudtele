@@ -70,10 +70,7 @@
     <aside class="sidebar" id="sidebar">
       <nav class="sidebar-nav">
         <div class="nav-group-label">Thư viện</div>
-        <a class="nav-item active" onclick="showView('dashboard')" id="nav-dashboard">
-          <i class="fas fa-home"></i> Trang chủ
-        </a>
-        <a class="nav-item" onclick="showView('files')" id="nav-files">
+        <a class="nav-item active" onclick="showView('files')" id="nav-files">
           <i class="fas fa-th-large"></i> Tất cả file <span class="badge" id="cnt-all"><div class="badge-dot"></div> <span>0</span></span>
         </a>
 
@@ -95,6 +92,7 @@
         </button>
         <div class="sidebar-credit">
           <span>© <span id="year"></span> TeleCloud</span>
+          <span style="font-weight:bold;color:var(--accent)">CAO VĂN NAM</span>
           <span>Made for Community 🇻🇳</span>
         </div>
       </div>
@@ -103,106 +101,9 @@
     <!-- Main -->
     <main class="main" id="mainContent">
       
-      <!-- ========== DASHBOARD VIEW ========== -->
-      <div id="dashboardView" class="dashboard-view">
-        <header class="dashboard-header">
-          <h1 id="greetingText" class="gradient-text">Chào buổi tối!</h1>
-          <p>Chào mừng bạn trở lại với TeleCloud.</p>
-        </header>
-
-        <!-- Stats Grid -->
-        <div class="stats-grid">
-          <div class="stat-card">
-            <div class="stat-icon"><i class="fas fa-file-alt"></i></div>
-            <div class="stat-info">
-              <span class="stat-value" id="stat-total-files">0</span>
-              <span class="stat-label">Tổng số file</span>
-            </div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon"><i class="fas fa-database"></i></div>
-            <div class="stat-info">
-              <span class="stat-value" id="stat-total-size">0 B</span>
-              <span class="stat-label">Dung lượng sử dụng</span>
-            </div>
-          </div>
-          <div class="stat-card">
-            <div class="stat-icon"><i class="fas fa-folder-open"></i></div>
-            <div class="stat-info">
-              <span class="stat-value" id="stat-total-folders">0</span>
-              <span class="stat-label">Thư mục</span>
-            </div>
-          </div>
-        </div>
-
-        <!-- Categories Section -->
-        <section class="categories-section">
-          <div class="section-header">
-            <h3>Phân loại</h3>
-          </div>
-          <div class="categories-grid">
-            <div class="category-card" onclick="filterByCategory('image')">
-              <span class="cat-icon">🖼️</span>
-              <div class="cat-name">Hình ảnh</div>
-              <span class="cat-count" id="cat-img-count">0 file</span>
-            </div>
-            <div class="category-card" onclick="filterByCategory('video')">
-              <span class="cat-icon">🎬</span>
-              <div class="cat-name">Video</div>
-              <span class="cat-count" id="cat-vid-count">0 file</span>
-            </div>
-            <div class="category-card" onclick="filterByCategory('audio')">
-              <span class="cat-icon">🎵</span>
-              <div class="cat-name">Âm nhạc</div>
-              <span class="cat-count" id="cat-aud-count">0 file</span>
-            </div>
-            <div class="category-card" onclick="filterByCategory('document')">
-              <span class="cat-icon">📄</span>
-              <div class="cat-name">Tài liệu</div>
-              <span class="cat-count" id="cat-doc-count">0 file</span>
-            </div>
-          </div>
-        </section>
-
-        <!-- Recent Files -->
-        <section class="recent-section">
-          <div class="section-header">
-            <h3>Tải lên gần đây</h3>
-            <button class="btn-secondary" onclick="showView('files')">Xem tất cả</button>
-          </div>
-          <div class="recent-list" id="recentList">
-            <!-- Rendered by JS -->
-          </div>
-        </section>
-
-        <!-- Quick Actions -->
-        <section class="actions-section">
-          <div class="section-header">
-            <h3>Thao tác nhanh</h3>
-          </div>
-          <div class="quick-actions-grid">
-            <div class="action-card" onclick="openUploadModal()">
-              <i class="fas fa-cloud-upload-alt"></i>
-              <span>Tải file lên</span>
-            </div>
-            <div class="action-card" onclick="syncFromTelegram()">
-              <i class="fas fa-sync"></i>
-              <span>Làm mới</span>
-            </div>
-            <div class="action-card" onclick="toggleSettings()">
-              <i class="fas fa-cog"></i>
-              <span>Cài đặt</span>
-            </div>
-            <div class="action-card" onclick="toggleTheme()">
-              <i class="fas fa-adjust"></i>
-              <span>Đổi chủ đề</span>
-            </div>
-          </div>
-        </section>
-      </div>
 
       <!-- ========== FILES VIEW ========== -->
-      <div id="filesView" class="hidden">
+      <div id="filesView">
         <!-- Toolbar -->
         <div class="toolbar">
           <div class="toolbar-left">
@@ -212,6 +113,7 @@
           <div class="toolbar-right">
             <div class="view-btns">
               <button class="view-btn active" id="gridBtn" onclick="setView('grid')" title="Lưới"><i class="fas fa-th"></i></button>
+              <button class="view-btn" id="galleryBtn" onclick="setView('gallery')" title="Bộ sưu tập"><i class="fas fa-image"></i></button>
               <button class="view-btn" id="listBtn" onclick="setView('list')" title="Danh sách"><i class="fas fa-list"></i></button>
             </div>
             <select class="sort-select" onchange="setSort(this.value)">
@@ -305,9 +207,9 @@
 
   <!-- Mobile Navigation -->
   <nav class="mobile-nav glass">
-    <a class="m-nav-item active" onclick="showView('dashboard')" id="m-nav-home">
-      <i class="fas fa-home"></i>
-      <span>Trang chủ</span>
+    <a class="m-nav-item" onclick="toggleSidebar()" id="m-nav-folders">
+      <i class="fas fa-folder"></i>
+      <span>Thư mục</span>
     </a>
     <a class="m-nav-item" onclick="toggleMobileSearch()" id="m-nav-search">
       <i class="fas fa-search"></i>
