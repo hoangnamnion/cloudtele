@@ -591,27 +591,21 @@ async function uploadFiles(fileList) {
   let completed = 0;
   let failed = 0;
   
-  const batches = [];
-  for (let i = 0; i < queue.length; i += MAX_CONCURRENT_UPLOADS) {
-    batches.push(queue.slice(i, i + MAX_CONCURRENT_UPLOADS));
-  }
-  
-  for (const batch of batches) {
-    const results = await Promise.allSettled(
-      batch.map(item => uploadSingleFile(item, total))
-    );
-    
-    results.forEach(result => {
-      if (result.status === 'fulfilled' && result.value) {
-        completed++;
-      } else {
-        failed++;
-      }
-    });
+  // Xử lý từng file một theo trình tự
+  for (const item of queue) {
+    const success = await uploadSingleFile(item, total);
+    if (success) {
+      completed++;
+    } else {
+      failed++;
+    }
     
     if (modalHeader) {
       modalHeader.innerHTML = `<i class="fas fa-spinner fa-spin"></i> Đang tải (${completed + failed}/${total})...`;
     }
+    
+    // Chờ 0.5 giây giữa mỗi file để tránh lỗi
+    await new Promise(r => setTimeout(r, 500));
   }
   
   if (modalHeader) {
