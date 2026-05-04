@@ -257,14 +257,14 @@
       <button onclick="closeUploadModal()"><i class="fas fa-times"></i></button>
     </div>
     <div class="modal-body">
-      <label class="drop-zone" id="dropZone" for="fileInput" style="cursor:pointer; display:block">
-        <input type="file" id="fileInput" multiple accept="image/*,video/*,audio/*,.pdf,.doc,.docx,.txt,.zip" style="position:absolute;width:1px;height:1px;padding:0;margin:-1px;overflow:hidden;clip:rect(0,0,0,0);border:0" onchange="handleFileSelect(event)">
+      <div class="drop-zone" id="dropZone" onclick="document.getElementById('fileInput').click()">
+        <input type="file" id="fileInput" multiple hidden onchange="handleFileSelect(event)">
         <div class="drop-zone-inner">
           <div class="dz-icon">☁️</div>
           <p>Kéo thả hoặc <span class="link-text">chọn file</span></p>
           <small>Ảnh, video, nhạc, tài liệu – tối đa 50MB mỗi file</small>
         </div>
-      </label>
+      </div>
       <div class="form-group" style="margin-top:12px">
         <label>Lưu vào thư mục:</label>
         <select id="uploadFolderSelect">
